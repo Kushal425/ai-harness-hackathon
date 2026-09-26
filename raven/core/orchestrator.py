@@ -128,6 +128,7 @@ def run_orchestrator(
     approve_fn=None,
     understanding: Understanding | None = None,
     plan: Plan | None = None,
+    on_event=None,
 ) -> OrchestratorResult:
     """`understanding`/`plan`, if supplied, come from a prior `/plan` the user
     already reviewed (plan §3: Plan mode "waits for approval or edits") —
@@ -139,6 +140,14 @@ def run_orchestrator(
     registry = build_default_registry()
     ctx = RunContext(repo_root=repo_root, mode=mode, approve_fn=approve_fn)
     checkpoints = checkpoints or CheckpointManager(repo_root)
+
+    def _emit(event, data):
+        if on_event is None:
+            return
+        try:
+            on_event(event, data)
+        except Exception:
+            pass
 
     # DIGEST
     digest = build_digest(repo_root)
@@ -158,6 +167,7 @@ def run_orchestrator(
         understanding = understand(gateway, goal)
 
     # VERIFY baseline is captured before any edits, for either strategy
+    _emit("verify_start", {"phase": "baseline"})
     pre = capture_pre_fix(registry, ctx, digest, understanding)
     # trace/SBFL localize the *original* failure — must run before any edit
     trace_text, sbfl_results = _trace_and_localize(repo_root, pre)
@@ -167,13 +177,13 @@ def run_orchestrator(
             gateway, registry, ctx, checkpoints, goal, understanding, digest_summary,
             max_replans, max_iterations, half_life, pre_evidence=pre, digest=digest, repo_root=repo_root,
             delegate=(strategy == "delegated"), initial_plan=plan,
-            pinned_lessons=pinned_lessons, reflection=reflection,
+            pinned_lessons=pinned_lessons, reflection=reflection, on_event=on_event,
         )
     else:
         executor_result = run_single_loop(
             gateway, registry, ctx, checkpoints, goal,
             digest_summary=digest_summary, max_iterations=max_iterations, half_life=half_life,
-            run_lessons=pinned_lessons,
+            run_lessons=pinned_lessons, on_event=on_event,
         )
         if not executor_result.completed:
             reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
@@ -181,6 +191,7 @@ def run_orchestrator(
         collateral = _collateral_changes(repo_root, checkpoints, understanding)
         evidence = compute_evidence(pre, post, executor_result.completed, collateral_changes=collateral)
         verdict = judge(executor_result, evidence)
+        _emit("verify_done", {"evidence": evidence})
 
     # Cross-task lesson extraction (plan §12.2) — best-effort, must never
     # affect the verdict already decided above.
@@ -208,7 +219,16 @@ def _run_plan_execute(
     max_replans, max_iterations, half_life, pre_evidence, digest, repo_root=None,
     delegate: bool = False, delegate_min_reads: int = 4, initial_plan: Plan | None = None,
     pinned_lessons: list[str] | None = None, reflection: RunReflection | None = None,
+    on_event=None,
 ):
+    def _emit(event, data):
+        if on_event is None:
+            return
+        try:
+            on_event(event, data)
+        except Exception:
+            pass
+
     pinned_lessons = pinned_lessons or []
     reflection = reflection or RunReflection()
     replans_left = max_replans
@@ -227,6 +247,7 @@ def _run_plan_execute(
         first_pass = False
 
         for step in plan.steps:
+            _emit("plan_step", {"id": step.id, "action": step.action, "status": "active"})
             explorer_note = ""
             if delegate and should_delegate_to_explorer(step.action, delegate_min_reads):
                 finding = explore(gateway, repo_root, step.action, digest_summary)
@@ -240,9 +261,10 @@ def _run_plan_execute(
                 gateway, registry, ctx, checkpoints, step_goal,
                 digest_summary=digest_summary, plan_text=plan.as_text(),
                 max_iterations=max_iterations, half_life=half_life,
-                run_lessons=pinned_lessons + reflection.lessons,
+                run_lessons=pinned_lessons + reflection.lessons, on_event=on_event,
             )
             step.status = "done" if executor_result.completed else "failed"
+            _emit("plan_step", {"id": step.id, "action": step.action, "status": step.status})
             if not executor_result.completed:
                 reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
                 break

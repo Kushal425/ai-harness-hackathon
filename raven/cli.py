@@ -16,7 +16,7 @@ from raven.core.orchestrator import run_orchestrator
 from raven.llm.fake import FakeClient
 from raven.llm.gateway import LLMGateway
 from raven.llm.providers import OpenAICompatibleClient
-from raven.ui.repl import run_piped, run_repl
+from raven.ui.repl import plain_event_printer, run_piped, run_repl
 from raven.ui.tui import rich_available, run_tui, should_use_tui
 
 
@@ -68,7 +68,12 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
     print(f"[raven] repo={repo_root}  strategy={strategy}  model={config.llm.model}")
     print("[raven] running...")
 
-    result = run_orchestrator(gateway, repo_root, goal, mode="autonomous", strategy=strategy)
+    # Plain bracketed event stream -- no animation, no color, no delay.
+    # This is the hackathon scoring path; it must never wait on rendering.
+    result = run_orchestrator(
+        gateway, repo_root, goal, mode="autonomous", strategy=strategy,
+        on_event=plain_event_printer,
+    )
 
     print("\n===== RAVEN RESULT =====")
     print(f"run_id:   {result.run_id}")

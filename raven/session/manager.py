@@ -84,7 +84,7 @@ HELP_TEXT = """\
 
 
 class SessionManager:
-    def __init__(self, config: RavenConfig, gateway: LLMGateway, repo_root: Path, approve_fn=None):
+    def __init__(self, config: RavenConfig, gateway: LLMGateway, repo_root: Path, approve_fn=None, on_event=None):
         self.config = config
         self.gateway = gateway
         self.state = SessionState(repo_root=Path(repo_root).resolve())
@@ -92,6 +92,10 @@ class SessionManager:
         # None for every non-interactive caller (plain REPL, autonomous CLI,
         # eval harness) — only the TUI supplies a real approval prompt.
         self.approve_fn = approve_fn
+        # None for callers that don't want a live tool-call stream (eval
+        # harness, tests). Both the TUI and plain REPL/piped paths set this
+        # once at construction and it stays constant for the session.
+        self.on_event = on_event
 
     # -- slash command dispatch -------------------------------------------------
 
@@ -157,6 +161,7 @@ class SessionManager:
             mode="act", strategy="plan_execute", checkpoints=checkpoints,
             approve_fn=self.approve_fn,
             understanding=self.state.understanding, plan=self.state.plan,
+            on_event=self.on_event,
         )
         self.state.last_result = result
         self.state.mode = "act"
@@ -174,6 +179,7 @@ class SessionManager:
             self.gateway, self.state.repo_root, goal,
             mode="autonomous", strategy=strategy, checkpoints=checkpoints,
             approve_fn=self.approve_fn,  # inert in autonomous mode — policy.py never asks there
+            on_event=self.on_event,
         )
         self.state.goal = goal
         self.state.last_result = result
@@ -304,6 +310,7 @@ class SessionManager:
             result = run_single_loop(
                 self.gateway, registry, ctx, checkpoints, goal=text,
                 digest_summary=digest_summary, max_iterations=6, answer_mode=True,
+                on_event=self.on_event,
             )
             if result.completed and result.summary:
                 return result.summary

@@ -6,6 +6,7 @@ help on the prescribed model."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 from raven.agents.debugger import run_debugger
 from raven.context.decay import HistoryEntry
@@ -47,8 +48,17 @@ def run_single_loop(
     identical_failures_for_debugger: int = 3,
     answer_mode: bool = False,
     run_lessons: list[str] | None = None,
+    on_event: "Callable[[str, dict], None] | None" = None,
 ) -> ExecutorResult:
     ctx.checkpoints = checkpoints
+
+    def _emit(event: str, data: dict) -> None:
+        if on_event is None:
+            return
+        try:
+            on_event(event, data)
+        except Exception:
+            pass  # a broken renderer must never affect the run
     context_engine = ContextEngine(tool_docs=registry.docs(), half_life=half_life)
     history: list[HistoryEntry] = []
     state = ContextState(
@@ -119,8 +129,10 @@ def run_single_loop(
                     history.append(HistoryEntry(turn=turn, role="result", text=f"[recovery] {stall_nudge}"))
                 continue
 
+            _emit("tool_start", {"tool": action.tool, "args": action.args})
             tool_result = registry.dispatch(action.tool, action.args, ctx)
             tool_calls += 1
+            _emit("tool_end", {"tool": action.tool, "args": action.args, "ok": tool_result.ok, "output": tool_result.output})
             recovery.record_action_result(action.tool, action.args, turn, tool_result.output)
             history.append(
                 HistoryEntry(
