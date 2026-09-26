@@ -1,0 +1,28 @@
+id: bug_palindrome_plan_execute
+task_type: bug_fix
+strategy: plan_execute
+goal: >
+  Fix the failing test_is_palindrome_false test in tests/test_strings.py.
+  is_palindrome() in calc/strings.py always returns True.
+check:
+  test_target: "tests/test_strings.py::test_is_palindrome_false"
+scripted_responses:
+  - |
+    ```understanding
+    {"task_type": "bug_fix", "summary": "fix is_palindrome() always returning True",
+     "entities": {"files": ["calc/strings.py"], "symbols": ["is_palindrome"], "errors": [], "commands": []},
+     "acceptance_criteria": ["test_is_palindrome_false passes"], "verification_strategy": "existing_tests",
+     "ambiguities": [], "risk": "low"}
+    ```
+  - |
+    ```plan
+    {"steps": [{"action": "compare cleaned text against its reverse", "tools": ["edit"], "check": "test_is_palindrome_false passes"}]}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/strings.py", "search": "return cleaned == cleaned", "replace": "return cleaned == cleaned[::-1]"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "fixed is_palindrome() to compare against the reversed string"}}
+    ```

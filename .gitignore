@@ -69,6 +69,7 @@ temp/
 .agent_state/
 .workspace/
 .agent_cache/
+.raven/
 
 # =========================
 # Build / Distribution
@@ -87,3 +88,8 @@ dist/
 # =========================
 test-results/
 coverage.xml
+
+# =========================
+# Eval harness scratch space
+# =========================
+evals/work/

@@ -1,0 +1,18 @@
+id: question_average_bug_single_loop
+task_type: question
+strategy: single_loop
+goal: >
+  Without changing any code, explain why test_average in
+  tests/test_arithmetic.py currently fails.
+check:
+  summary_contains: ["off-by-one"]
+  expect_no_edits: true
+scripted_responses:
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/arithmetic.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "test_average fails because average() divides by len(numbers) + 1 instead of len(numbers) - an off-by-one bug in calc/arithmetic.py."}}
+    ```

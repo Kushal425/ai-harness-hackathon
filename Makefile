@@ -1,94 +1,49 @@
-.PHONY: setup run test clean
-
-PYTHON := python3
+PY ?= python3
 VENV := .venv
-VENV_BIN := $(VENV)/bin
-PYTHON_VENV := $(VENV_BIN)/python
-PIP_VENV := $(VENV_BIN)/pip
+BIN := $(VENV)/bin
+.PHONY: setup run test eval evolve clean
 
 setup:
 	@echo "========================================="
-	@echo "  AI Coding Harness - Setup"
+	@echo "  Raven - Setup"
 	@echo "========================================="
-	@echo ""
-
-	@if ! command -v $(PYTHON) >/dev/null 2>&1; then \
+	@if ! command -v $(PY) >/dev/null 2>&1; then \
 		echo "Error: Python 3 is required but was not found."; \
 		exit 1; \
 	fi
-
-	@echo "Using Python: $$($(PYTHON) --version)"
-
+	@echo "Using Python: $$($(PY) --version)"
 	@if [ ! -d "$(VENV)" ]; then \
 		echo "Creating virtual environment..."; \
-		$(PYTHON) -m venv $(VENV); \
-	else \
-		echo "Virtual environment already exists."; \
+		$(PY) -m venv $(VENV); \
 	fi
-
-	@echo "Upgrading pip..."
-	@$(PYTHON_VENV) -m pip install --upgrade pip
-
-	@if [ -f requirements.txt ]; then \
-		echo "Installing dependencies..."; \
-		$(PIP_VENV) install -r requirements.txt; \
-	else \
-		echo "No requirements.txt found. Skipping dependency installation."; \
-	fi
-
-	@echo ""
-	@echo "Setup complete."
-	@echo "Run the harness with: make run"
-
+	@$(BIN)/pip install --upgrade pip >/dev/null
+	@$(BIN)/pip install -e ".[dev]" >/dev/null
+	@command -v rg >/dev/null 2>&1 || echo "ripgrep not found: search tool will use its pure-Python fallback"
+	@echo "Setup complete. Start with: make run"
 
 run:
-	@echo "========================================="
-	@echo "  AI Coding Harness"
-	@echo "========================================="
-	@echo ""
-
-	@if [ -z "$$AI_API_KEY" ]; then \
-		echo "Error: AI_API_KEY is not set."; \
-		echo "Set it with:"; \
-		echo '  export AI_API_KEY="<provided-api-key>"'; \
+	@if [ ! -x "$(BIN)/python" ]; then \
+		echo "Error: environment not set up. Run: make setup"; \
 		exit 1; \
 	fi
-
-	@if [ ! -x "$(PYTHON_VENV)" ]; then \
-		echo "Error: Environment is not set up."; \
-		echo "Run: make setup"; \
-		exit 1; \
-	fi
-
-	@$(PYTHON_VENV) -m src.main
-
+	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python -m raven $(ARGS)
 
 test:
-	@echo "========================================="
-	@echo "  AI Coding Harness - Tests"
-	@echo "========================================="
-	@echo ""
-
-	@if [ ! -x "$(PYTHON_VENV)" ]; then \
-		echo "Error: Environment is not set up."; \
-		echo "Run: make setup"; \
+	@if [ ! -x "$(BIN)/python" ]; then \
+		echo "Error: environment not set up. Run: make setup"; \
 		exit 1; \
 	fi
+	$(BIN)/python -m pytest -q tests
 
-	@$(PYTHON_VENV) -m pytest
+eval:
+	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python evals/run_evals.py $(ARGS)
 
+evolve:
+	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python -m raven.learn.evolve $(ARGS)
 
 clean:
-	@echo "Cleaning generated files..."
-
-	rm -rf $(VENV)
-	rm -rf .pytest_cache
-	rm -rf .mypy_cache
-	rm -rf .ruff_cache
-	rm -rf .agent_state
-	rm -rf .workspace
-
+	rm -rf $(VENV) .raven build dist *.egg-info evals/work
+	rm -rf .pytest_cache .mypy_cache .ruff_cache
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-
 	@echo "Clean complete."

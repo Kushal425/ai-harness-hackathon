@@ -1,0 +1,25 @@
+id: test_writing_add_edge_case_single_loop
+task_type: test_writing
+strategy: single_loop
+goal: >
+  Add a new test file tests/test_add_edge_cases.py with an additional test
+  for add() covering negative numbers, without modifying any existing files.
+check:
+  test_target: "tests/test_add_edge_cases.py"
+scripted_responses:
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/arithmetic.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "create", "args": {"path": "tests/test_add_edge_cases.py", "content": "from calc.arithmetic import add\n\n\ndef test_add_negative_numbers():\n    assert add(-2, -3) == -5\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": "tests/test_add_edge_cases.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "added an edge-case test for add() with negative numbers"}}
+    ```

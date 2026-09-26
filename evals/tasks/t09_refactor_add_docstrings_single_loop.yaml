@@ -1,0 +1,28 @@
+id: refactor_add_docstrings_single_loop
+task_type: refactor
+strategy: single_loop
+goal: >
+  Add short docstrings to add() and subtract() in calc/arithmetic.py
+  without changing their behavior.
+check: {}
+scripted_responses:
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/arithmetic.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/arithmetic.py", "search": "def add(a, b):\n    return a + b", "replace": "def add(a, b):\n    \"\"\"Return a + b.\"\"\"\n    return a + b"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/arithmetic.py", "search": "def subtract(a, b):\n    return a - b", "replace": "def subtract(a, b):\n    \"\"\"Return a - b.\"\"\"\n    return a - b"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": "tests/test_arithmetic.py::test_add"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "added docstrings to add() and subtract(), behavior unchanged"}}
+    ```

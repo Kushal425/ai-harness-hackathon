@@ -1,0 +1,29 @@
+id: bug_average_single_loop
+task_type: bug_fix
+strategy: single_loop
+goal: >
+  Fix the failing test_average test in tests/test_arithmetic.py. The
+  average() function in calc/arithmetic.py has an off-by-one bug.
+check:
+  test_target: "tests/test_arithmetic.py::test_average"
+scripted_responses:
+  - |
+    ```action
+    {"tool": "search", "args": {"pattern": "def average"}}
+    ```
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/arithmetic.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/arithmetic.py", "search": "return sum(numbers) / (len(numbers) + 1)", "replace": "return sum(numbers) / len(numbers)"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": "tests/test_arithmetic.py::test_average"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "fixed off-by-one bug in average()"}}
+    ```

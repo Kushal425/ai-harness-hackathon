@@ -1,0 +1,18 @@
+id: question_palindrome_bug_single_loop
+task_type: question
+strategy: single_loop
+goal: >
+  Without changing any code, explain why test_is_palindrome_false in
+  tests/test_strings.py currently fails.
+check:
+  summary_contains: ["itself"]
+  expect_no_edits: true
+scripted_responses:
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/strings.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "test_is_palindrome_false fails because is_palindrome() compares cleaned to itself instead of its reverse, so it always returns True."}}
+    ```

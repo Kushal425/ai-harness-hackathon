@@ -1,82 +1,49 @@
-# AI Coding Harness
+# Raven
 
-Autonomous AI coding-agent harness built for the **LCC × DevClub AI Coding Harness Hackathon 2026**.
+A self-improving, conversational coding-agent harness, built for the **LCC × DevClub AI Coding Harness Hackathon 2026**.
 
-The project is designed to turn a foundation language model into an autonomous software-engineering agent capable of understanding coding tasks, exploring an existing repository, using development tools, managing context, recovering from failures, modifying code, and verifying its changes.
+Raven turns a foundation language model into an autonomous software engineer: it understands a task, plans the work, navigates the repository with purpose-built tools, makes reversible edits, proves its changes with evidence (not claims), recovers from failures on its own, and talks with you throughout.
 
----
+## Status
 
-## Table of Contents
+**Phase 1 (in progress):** the core end-to-end pipeline — CLI, LLM gateway, plain REPL. This is being built incrementally; see `PLAN.md`-equivalent context in the project history for the full architecture and 3-phase build plan.
 
-- [Overview](#overview)
-- [Problem](#problem)
-- [Objectives](#objectives)
-- [Core Capabilities](#core-capabilities)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Requirements](#requirements)
-- [Environment Configuration](#environment-configuration)
-- [Setup](#setup)
-- [Running the Harness](#running-the-harness)
-- [Running Tests](#running-tests)
-- [Cleaning the Environment](#cleaning-the-environment)
-- [Development Workflow](#development-workflow)
-- [Security](#security)
-- [Evaluation Workflow](#evaluation-workflow)
-- [Design Principles](#design-principles)
-- [Project Status](#project-status)
+## Quick start
 
----
+```bash
+make setup
+export AI_API_KEY="<your-api-key>"
+make run
+```
 
-# Overview
+`make test` runs the offline unit test suite (no API key, no network required — it uses a `FakeClient`).
 
-A foundation model can generate code, but generating code is only one part of completing a software-engineering task.
+## Configuration
 
-A coding harness provides the surrounding system required for the model to behave more like an autonomous software engineer.
+Runtime config lives in `config.yaml`. Nothing secret lives in config or code — only `AI_API_KEY` is read from the environment. Override the model/endpoint with:
 
-This project focuses on building that system.
+```bash
+export RAVEN_MODEL="<model-name>"
+export RAVEN_BASE_URL="<endpoint>"
+```
 
-The harness is responsible for:
+## Repository layout
 
-- understanding software-engineering tasks
-- planning the work
-- navigating an existing repository
-- retrieving relevant context
-- using development tools
-- modifying files
-- executing commands
-- reacting to failures
-- verifying changes
-- tracking execution
-- producing a final result
+```
+raven/
+├── __main__.py · cli.py · config.py
+├── llm/            gateway.py · providers.py · fake.py · protocol.py
+├── ui/             repl.py
+tests/              offline unit tests (FakeClient)
+config.yaml         default configuration
+.env.example        documents AI_API_KEY (left empty)
+```
 
-The goal is not to build a conventional application.
+This will grow across Phase 1–3 into the full architecture: task understanding, planner, executor, tool layer, context engine, memory, recovery system, verifier (evidence-first proof of changes), sub-agents, and a learning loop with offline prompt evolution.
 
-The goal is to build a reliable system around a foundation model that enables autonomous software-engineering work.
+## Security
 
----
-
-# Problem
-
-The hackathon problem is to build an autonomous coding-agent harness around the standardized foundation model.
-
-The harness should enable the underlying model to:
-
-1. Understand a software-engineering task.
-2. Navigate an existing repository.
-3. Intelligently use available tools.
-4. Manage context effectively.
-5. Recover from failures without requiring human intervention.
-6. Produce correct and verified code changes.
-7. Use tokens and computational resources efficiently.
-
-The system should therefore act as the layer between:
-
-```text
-Software Engineering Task
-        ↓
-Coding-Agent Harness
-        ↓
-Foundation Model + Tools
-        ↓
-Verified Repository Change
+- The API key is read only from `AI_API_KEY`.
+- Subprocess environments are scrubbed of secret-like variables before any shell tool runs.
+- File operations are jailed to the target repository and a scratch directory.
+- No network access, no `git push`, no history rewrites — enforced in code.

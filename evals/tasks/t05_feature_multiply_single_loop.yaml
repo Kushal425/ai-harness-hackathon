@@ -1,0 +1,29 @@
+id: feature_multiply_single_loop
+task_type: feature
+strategy: single_loop
+goal: >
+  Add a multiply(a, b) function to calc/arithmetic.py that returns a * b,
+  and add a new test file tests/test_multiply.py covering it.
+check:
+  test_target: "tests/test_multiply.py"
+scripted_responses:
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/arithmetic.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/arithmetic.py", "search": "def subtract(a, b):\n    return a - b\n", "replace": "def subtract(a, b):\n    return a - b\n\n\ndef multiply(a, b):\n    return a * b\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "create", "args": {"path": "tests/test_multiply.py", "content": "from calc.arithmetic import multiply\n\n\ndef test_multiply():\n    assert multiply(3, 4) == 12\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": "tests/test_multiply.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "added multiply() and a covering test"}}
+    ```

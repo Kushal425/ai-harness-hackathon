@@ -1,0 +1,62 @@
+# Raven default configuration.
+# Overridden by config.tuned.yaml if present (shipped after prompt evolution, Phase 3).
+llm:
+  provider: openai_compatible
+  base_url: "https://api.openai.com/v1"   # overridden by RAVEN_BASE_URL or organiser endpoint
+  model: "gpt-4o-mini"                     # overridden by RAVEN_MODEL or the prescribed model
+  temperature: 0
+  seed: 7
+  context_window: 32000
+  max_output_tokens: 2048
+  tool_protocol: auto   # auto | native | text
+  request_timeout_s: 60
+  max_retries: 5
+
+executor:
+  strategy: single_loop   # single_loop | plan_execute | delegated
+  max_replans: 2
+  delegate_min_reads: 4
+
+agents:
+  explorer: false
+  engineer: false
+  verifier: false
+  reviewer: false
+  debugger: false
+
+context:
+  compact_at: 0.6
+  half_life: 3
+  k_full: 2
+  min_keep: 60
+
+recovery:
+  stall_turns: 4
+  identical_failures_for_debugger: 3
+  max_rollbacks: 2
+
+verify:
+  reproduce: false
+  trace: false
+  behavior_diff: false
+  mutants: false
+  disagreement: false
+  escalate_below: 0.7
+
+learning:
+  in_run_reflection: false
+  lessons: false
+  max_lessons_pinned: 3
+  playbooks: false
+
+budgets:
+  total_tokens: 400000
+  wall_clock_s: 1200
+
+policy:
+  mode_defaults:
+    autonomous: strict
+
+ui:
+  tui: auto   # auto | on | off (falls back to plain REPL)
+  stream: true

@@ -1,0 +1,29 @@
+id: bug_palindrome_single_loop
+task_type: bug_fix
+strategy: single_loop
+goal: >
+  Fix the failing test_is_palindrome_false test in tests/test_strings.py.
+  is_palindrome() in calc/strings.py always returns True.
+check:
+  test_target: "tests/test_strings.py::test_is_palindrome_false"
+scripted_responses:
+  - |
+    ```action
+    {"tool": "search", "args": {"pattern": "def is_palindrome"}}
+    ```
+  - |
+    ```action
+    {"tool": "read", "args": {"path": "calc/strings.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/strings.py", "search": "return cleaned == cleaned", "replace": "return cleaned == cleaned[::-1]"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": "tests/test_strings.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "fixed is_palindrome() to compare against the reversed string"}}
+    ```
