@@ -32,7 +32,11 @@ from raven.core.executor import ExecutorResult, run_single_loop
 from raven.core.judge import Verdict, judge
 from raven.core.planner import Plan, make_plan
 from raven.core.understand import Understanding, understand
+from raven.learn.extract_lessons import extract_and_store_lesson
+from raven.learn.reflect import RunReflection
 from raven.llm.gateway import LLMGateway
+from raven.memory.lessons import format_lesson, retrieve_combined
+from raven.memory.project import record_fact
 from raven.recovery.checkpoints import CheckpointManager
 from raven.repo.digest import build_digest
 from raven.report.report import write_report
@@ -139,6 +143,14 @@ def run_orchestrator(
     # DIGEST
     digest = build_digest(repo_root)
     digest_summary = digest.summary()
+    if digest.test_command:
+        record_fact(repo_root, f"test command: {digest.test_command}")
+
+    # Learning loop (plan §12): cross-task lessons retrieved once up front
+    # and pinned for the whole run; in-run reflection (capped) accumulates
+    # as steps fail and is re-pinned alongside them on every later call.
+    pinned_lessons = [format_lesson(l) for l in retrieve_combined(repo_root, goal, k=3)]
+    reflection = RunReflection()
 
     # UNDERSTAND (plan_execute / delegated only) — skip if the caller already
     # has one (e.g. SessionManager's /plan computed and showed it already).
@@ -155,16 +167,27 @@ def run_orchestrator(
             gateway, registry, ctx, checkpoints, goal, understanding, digest_summary,
             max_replans, max_iterations, half_life, pre_evidence=pre, digest=digest, repo_root=repo_root,
             delegate=(strategy == "delegated"), initial_plan=plan,
+            pinned_lessons=pinned_lessons, reflection=reflection,
         )
     else:
         executor_result = run_single_loop(
             gateway, registry, ctx, checkpoints, goal,
             digest_summary=digest_summary, max_iterations=max_iterations, half_life=half_life,
+            run_lessons=pinned_lessons,
         )
+        if not executor_result.completed:
+            reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
         post = capture_post_fix(registry, ctx, digest, understanding)
         collateral = _collateral_changes(repo_root, checkpoints, understanding)
         evidence = compute_evidence(pre, post, executor_result.completed, collateral_changes=collateral)
         verdict = judge(executor_result, evidence)
+
+    # Cross-task lesson extraction (plan §12.2) — best-effort, must never
+    # affect the verdict already decided above.
+    try:
+        extract_and_store_lesson(gateway, repo_root, goal, executor_result, verdict, evidence)
+    except Exception:
+        pass
 
     run_dir = (runs_dir or (repo_root / ".raven" / "runs")) / run_id
     report_path = write_report(
@@ -184,7 +207,10 @@ def _run_plan_execute(
     gateway, registry, ctx, checkpoints, goal, understanding, digest_summary,
     max_replans, max_iterations, half_life, pre_evidence, digest, repo_root=None,
     delegate: bool = False, delegate_min_reads: int = 4, initial_plan: Plan | None = None,
+    pinned_lessons: list[str] | None = None, reflection: RunReflection | None = None,
 ):
+    pinned_lessons = pinned_lessons or []
+    reflection = reflection or RunReflection()
     replans_left = max_replans
     note = ""
     executor_result = None
@@ -214,9 +240,11 @@ def _run_plan_execute(
                 gateway, registry, ctx, checkpoints, step_goal,
                 digest_summary=digest_summary, plan_text=plan.as_text(),
                 max_iterations=max_iterations, half_life=half_life,
+                run_lessons=pinned_lessons + reflection.lessons,
             )
             step.status = "done" if executor_result.completed else "failed"
             if not executor_result.completed:
+                reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
                 break
 
         post = capture_post_fix(registry, ctx, digest, understanding)
@@ -226,6 +254,7 @@ def _run_plan_execute(
 
         if verdict.accepted or replans_left <= 0:
             break
+        reflection.maybe_reflect(gateway, f"replanning: {verdict.reason}")
         replans_left -= 1
         note = verdict.reason
 

@@ -9,29 +9,11 @@ from dataclasses import dataclass, field
 
 from raven.context.decay import HistoryEntry, apply_decay
 from raven.llm.protocol import Message
+from raven.prompts import get_prompt
 
-PROTOCOL_INSTRUCTIONS = """\
-You are Raven, an autonomous coding agent. You work by emitting exactly one
-tool action per turn, as a fenced block at the end of your reply:
-
-```action
-{"tool": "<tool name>", "args": {...}}
-```
-
-Think briefly in plain text before the block if useful, but always end your
-reply with exactly one ```action fenced block. When the task is complete,
-call the `done` tool: {"tool": "done", "args": {"summary": "what you did"}}.
-"""
-
-ANSWER_MODE_INSTRUCTIONS = """\
-This is a conversational question, not a code-editing task. The `summary`
-field of `done` is shown to the user VERBATIM as your entire reply — it must
-be your complete, self-contained answer, not a short recap of actions taken.
-If you already know the answer or don't need to look at any files, call
-`done` immediately on your first turn with the full answer in `summary`.
-Only use read-only tools first if you genuinely need to check the repository
-to answer accurately.
-"""
+# Text lives in prompts/base.yaml (plan §12.3).
+PROTOCOL_INSTRUCTIONS = get_prompt("protocol_instructions")
+ANSWER_MODE_INSTRUCTIONS = get_prompt("answer_mode_instructions")
 
 
 @dataclass
@@ -42,6 +24,10 @@ class ContextState:
     history: list[HistoryEntry] = field(default_factory=list)
     half_life: int = 3
     answer_mode: bool = False
+    # Pinned lessons (plan §12.1 in-run reflections + §12.2 retrieved
+    # cross-task lessons), rendered every turn alongside the digest --
+    # small and high-signal, so never subject to decay like history is.
+    run_lessons: list[str] = field(default_factory=list)
 
 
 class ContextEngine:
@@ -59,6 +45,8 @@ class ContextEngine:
             sections.append(f"# Plan\n{state.plan_text}")
         if state.digest_summary:
             sections.append(f"# Repository digest\n{state.digest_summary}")
+        if state.run_lessons:
+            sections.append("# Lessons\n" + "\n".join(f"- {l}" for l in state.run_lessons))
 
         decayed = apply_decay(state.history, current_turn, self.half_life)
         if decayed:

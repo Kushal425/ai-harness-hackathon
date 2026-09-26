@@ -76,10 +76,11 @@ def test_act_executes_the_plan_already_shown_by_plan_not_a_recomputed_one(repo):
     whatever /plan showed the user (and any edits they made to it). Assert
     by identity that /act's result carries the *exact same* Understanding
     and Plan objects /plan already produced, not new ones. Also assert the
-    LLM call count matches exactly 2 (understand+plan) + len(FIX_SEQUENCE)
-    — any hidden recomputation would consume extra calls and desync the
-    scripted sequence, breaking the fix and/or this count."""
-    session = _session(repo, [UNDERSTAND_RESP, PLAN_RESP] + FIX_SEQUENCE)
+    LLM call count matches exactly 2 (understand+plan) + len(FIX_SEQUENCE) +
+    1 (end-of-run cross-task lesson extraction, plan §12.2) — any hidden
+    recomputation would consume extra calls and desync the scripted
+    sequence, breaking the fix and/or this count."""
+    session = _session(repo, [UNDERSTAND_RESP, PLAN_RESP] + FIX_SEQUENCE + ['```lesson\n{"trigger": ""}\n```'])
 
     session.handle_input("/plan fix the average() bug")
     planned_understanding = session.state.understanding
@@ -89,7 +90,7 @@ def test_act_executes_the_plan_already_shown_by_plan_not_a_recomputed_one(repo):
 
     assert session.state.last_result.understanding is planned_understanding
     assert session.state.last_result.plan is planned_plan
-    assert session.gateway.stats.calls == 2 + len(FIX_SEQUENCE)
+    assert session.gateway.stats.calls == 2 + len(FIX_SEQUENCE) + 1
 
     fixed_content = (repo / "calc" / "arithmetic.py").read_text()
     assert "sum(numbers) / len(numbers)\n" in fixed_content

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from raven.core.json_utils import parse_json_block
 from raven.llm.gateway import LLMGateway
 from raven.llm.protocol import Message
+from raven.prompts import get_prompt
 
 VALID_TASK_TYPES = {
     "bug_fix", "feature", "refactor", "test_writing", "question",
@@ -19,22 +20,10 @@ VALID_TASK_TYPES = {
 }
 VALID_VERIFICATION = {"repro_test", "new_tests", "existing_tests", "static_only", "answer_only"}
 
-UNDERSTAND_SYSTEM_PROMPT = """\
-You are Raven's task-understanding step. Read the task goal and respond with
-exactly one fenced block:
-
-```understanding
-{
-  "task_type": "bug_fix | feature | refactor | test_writing | question | review | performance | docs | config",
-  "summary": "one sentence",
-  "entities": {"files": [], "symbols": [], "errors": [], "commands": []},
-  "acceptance_criteria": ["observable, checkable statements"],
-  "verification_strategy": "repro_test | new_tests | existing_tests | static_only | answer_only",
-  "ambiguities": [{"question": "...", "default_assumption": "..."}],
-  "risk": "low | medium | high"
-}
-```
-"""
+# Text lives in prompts/base.yaml (plan §12.3) so the offline evolution loop
+# can mutate it without touching code. Kept as a module constant for
+# backward-compatible imports elsewhere in the codebase and in tests.
+UNDERSTAND_SYSTEM_PROMPT = get_prompt("understand_system")
 
 
 @dataclass

@@ -10,18 +10,12 @@ from raven.core.json_utils import parse_json_block
 from raven.core.understand import Understanding
 from raven.llm.gateway import LLMGateway
 from raven.llm.protocol import Message
+from raven.prompts import get_prompt
 
 MAX_STEPS = 7
 
-PLAN_SYSTEM_PROMPT = """\
-You are Raven's planner. Given the task understanding and a repository
-digest, produce at most 7 concrete steps. Respond with exactly one fenced
-block:
-
-```plan
-{"steps": [{"action": "...", "tools": ["read", "edit", "tests"], "check": "how to tell this step worked"}]}
-```
-"""
+# Text lives in prompts/base.yaml (plan §12.3).
+PLAN_SYSTEM_PROMPT = get_prompt("plan_system")
 
 
 @dataclass

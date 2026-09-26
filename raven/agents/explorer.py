@@ -7,15 +7,13 @@ budget reading around blindly."""
 from __future__ import annotations
 
 from raven.core.executor import run_single_loop
+from raven.prompts import get_prompt
 from raven.recovery.checkpoints import CheckpointManager
 from raven.tools.registry import RunContext, build_default_registry
 
-EXPLORER_GOAL_PREFIX = (
-    "You are Raven's Explorer sub-agent. Investigate the following question "
-    "using only read-only tools (read, search, symbols, outline, git_status). "
-    "When you have an answer, call done with a concise summary (aim for "
-    "under 300 tokens) that cites specific file:line locations.\n\nQuestion: "
-)
+# Text lives in prompts/base.yaml (plan §12.3). Trailing space before the
+# question keeps the original "...locations.\n\nQuestion: <text>" formatting.
+EXPLORER_GOAL_PREFIX = get_prompt("explorer_goal_prefix") + " "
 
 # Cheap proxy heuristic for "this plan step needs broad exploration" (plan
 # §7.3, delegate_min_reads config): we can't know the actual read count a

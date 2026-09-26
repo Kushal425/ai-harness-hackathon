@@ -24,14 +24,13 @@ from raven.core.planner import Plan, make_plan
 from raven.core.understand import Understanding, understand
 from raven.llm.gateway import LLMGateway
 from raven.llm.protocol import Message
+from raven.prompts import get_prompt
 from raven.recovery.checkpoints import CheckpointManager
 from raven.repo.digest import build_digest
 from raven.tools.registry import RunContext, build_default_registry
 
-CHAT_SYSTEM_PROMPT = (
-    "You are Raven, a conversational coding-agent harness. Answer plainly; "
-    "say so if asked to edit code (chat mode is read-only — use /plan or /auto)."
-)
+# Text lives in prompts/base.yaml (plan §12.3).
+CHAT_SYSTEM_PROMPT = get_prompt("chat_system")
 
 # Mode auto-detect heuristics (plan §14.2): pasted text that looks like an
 # issue report switches Chat straight into an autonomous run.
@@ -74,6 +73,7 @@ HELP_TEXT = """\
 /checkpoints       list files touched by the last run
 /evidence          show evidence from the last run
 /memory            show the repo digest summary
+/lessons           show lessons learned from past runs on this repo
 /budget            show token/call usage
 /config            show the active configuration
 /model             show the model in use
@@ -118,6 +118,7 @@ class SessionManager:
             "/checkpoints": self._cmd_checkpoints,
             "/evidence": self._cmd_evidence,
             "/memory": self._cmd_memory,
+            "/lessons": self._cmd_lessons,
             "/budget": self._cmd_budget,
             "/config": self._cmd_config,
             "/model": self._cmd_model,
@@ -233,6 +234,22 @@ class SessionManager:
 
     def _cmd_memory(self, _arg: str) -> str:
         return build_digest(self.state.repo_root).summary()
+
+    def _cmd_lessons(self, _arg: str) -> str:
+        from raven.memory.lessons import GLOBAL_LESSONS_PATH, list_lessons, repo_lessons_path
+
+        repo = list_lessons(repo_lessons_path(self.state.repo_root))
+        glob = list_lessons(GLOBAL_LESSONS_PATH)
+        if not repo and not glob:
+            return "(no lessons learned yet on this repo)"
+        lines = []
+        if repo:
+            lines.append("repo-scope:")
+            lines += [f"  - {l.get('insight', '')} (x{l.get('confirmations', 1)})" for l in repo]
+        if glob:
+            lines.append("global-scope:")
+            lines += [f"  - {l.get('insight', '')} (x{l.get('confirmations', 1)})" for l in glob]
+        return "\n".join(lines)
 
     def _cmd_budget(self, _arg: str) -> str:
         stats = self.gateway.stats

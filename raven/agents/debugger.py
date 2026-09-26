@@ -11,25 +11,11 @@ from __future__ import annotations
 
 from raven.core.json_utils import parse_json_block
 from raven.llm.protocol import Message
+from raven.prompts import get_prompt
 
-HYPOTHESES_PROMPT = """\
-You are Raven's Debugger. The executor is stuck: the same test failure has
-repeated across several edit attempts. Given the failure signature and repo
-digest below, propose 2-3 competing hypotheses for the root cause. For each,
-give one cheap, discriminating probe (a tool call) that would confirm or
-rule it out. Respond with exactly one fenced block:
-
-```debug
-{"hypotheses": [{"hypothesis": "...", "probe": {"tool": "read", "args": {"path": "..."}}}]}
-```
-"""
-
-VERDICT_PROMPT = """\
-Here are the hypotheses you proposed and the result of running the first
-probe. Decide which hypothesis best survives this evidence (or propose a
-refined one) and state, in one or two sentences, what the executor should
-try next. Do not use a fenced block — just answer in plain text.
-"""
+# Text lives in prompts/base.yaml (plan §12.3).
+HYPOTHESES_PROMPT = get_prompt("debugger_hypotheses")
+VERDICT_PROMPT = get_prompt("debugger_verdict")
 
 
 def run_debugger(gateway, registry, ctx, digest_summary: str, failure_signature: str) -> str:

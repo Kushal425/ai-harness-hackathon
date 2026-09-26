@@ -46,13 +46,14 @@ def run_single_loop(
     stall_turns: int = 4,
     identical_failures_for_debugger: int = 3,
     answer_mode: bool = False,
+    run_lessons: list[str] | None = None,
 ) -> ExecutorResult:
     ctx.checkpoints = checkpoints
     context_engine = ContextEngine(tool_docs=registry.docs(), half_life=half_life)
     history: list[HistoryEntry] = []
     state = ContextState(
         task_card=goal, digest_summary=digest_summary, plan_text=plan_text,
-        history=history, answer_mode=answer_mode,
+        history=history, answer_mode=answer_mode, run_lessons=run_lessons or [],
     )
     last_raw_text = ""
     recovery = RecoveryState(

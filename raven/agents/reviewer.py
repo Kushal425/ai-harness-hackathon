@@ -8,18 +8,11 @@ from __future__ import annotations
 import subprocess
 
 from raven.agents.base import run_subagent
+from raven.prompts import get_prompt
 from raven.tools.git_tool import is_repo_toplevel
 
-REVIEWER_SYSTEM_PROMPT = """\
-You are Raven's Reviewer. You are given a diff and the evidence gathered
-for it, but you were NOT involved in writing this change — form your own
-independent judgment. Look for correctness bugs, not style. Respond with
-exactly one fenced block:
-
-```review
-{"verdict": "approve | concerns", "issues": [{"description": "...", "severity": "low | medium | high"}]}
-```
-"""
+# Text lives in prompts/base.yaml (plan §12.3).
+REVIEWER_SYSTEM_PROMPT = get_prompt("reviewer_system")
 
 TRIVIAL_DIFF_LINE_THRESHOLD = 5
 
