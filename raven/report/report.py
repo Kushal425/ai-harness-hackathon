@@ -48,6 +48,17 @@ def write_report(
     if plan is not None:
         lines += ["## Plan", "```", plan.as_text(), "```", ""]
 
+    repro = (evidence or {}).get("repro")
+    if repro:
+        mark = lambda ok: "yes" if ok else "NO"  # noqa: E731
+        lines += [
+            "## Reproduction (verified by Raven, not the model)",
+            f"- test: `{repro.get('test')}`",
+            f"- fails on the original code: {mark(repro.get('failed_before'))}",
+            f"- passes on the fix: {mark(repro.get('passes_after'))}",
+            "",
+        ]
+
     lines += [
         "## Evidence",
         "```json",

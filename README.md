@@ -22,7 +22,7 @@ make run
 
 In a real terminal this launches the TUI (rich panels, streaming, plan/activity view). Piped input or `TERM=dumb` falls back to a plain REPL automatically — the harness never requires a fancy terminal to work.
 
-`make test` runs the full offline test suite (167 tests, no API key or network — everything is exercised against a scripted `FakeClient`).
+`make test` runs the full offline test suite (205 tests, no API key or network — everything is exercised against a scripted `FakeClient`).
 
 ```bash
 make test               # offline unit + integration tests
@@ -78,18 +78,20 @@ raven/
 
 prompts/base.yaml    every prompt the harness sends to a model, versioned (plan §12.3)
 evals/                tasks/*.yaml · run_evals.py · results/baseline.md
-tests/                 167 offline tests (FakeClient) + tests/fixtures/toy_repo
+tests/                 205 offline tests (FakeClient) + tests/fixtures/toy_repo
 ```
 
 **Orchestrator state machine** (`raven/core/orchestrator.py`):
 
 ```
-single_loop:   INTAKE -> DIGEST -> EXECUTE -> VERIFY -> JUDGE -> FINALIZE
+single_loop:   INTAKE -> DIGEST -> REPRODUCE+EXECUTE -> VERIFY -> JUDGE -> FINALIZE
 plan_execute:  INTAKE -> UNDERSTAND -> DIGEST -> PLAN -> EXECUTE(per step)
                -> VERIFY -> JUDGE -> (REPLAN -> PLAN)* -> FINALIZE
 delegated:     same as plan_execute, plus Explorer delegation on exploratory
                steps and one Reviewer pass on the final diff
 ```
+
+**Reproduce first, verified by the harness** (`raven/verify/reproduce.py`, plan §11.2). For bug fixes and features in a pytest repo, the executor first writes a reproduction test at `.raven/repro/test_repro.py` that must fail on the current code, then fixes the code until it passes. Raven then checks that claim itself, independently of the model: it swaps the original files back in, runs the reproduction (it must **fail**), restores the fix, and runs it again (it must **pass**). This is what makes a fix provable when the repo has no failing test for the issue, e.g. when the grader's tests are hidden. A reproduction that still fails on the fix gets the run rejected; one that never failed earns no credit. The test lives in Raven's git-excluded scratch dir, is archived next to the run's `report.md`, and never appears in the patch. Toggle: `verify.reproduce` in `config.yaml`.
 
 Every run — regardless of strategy — also runs the learning loop: pinned cross-task lessons are retrieved before EXECUTE, in-run reflection fires on failed steps (capped at 3), and a new lesson is extracted and stored at the end.
 
@@ -140,7 +142,7 @@ exception raised at line 13
 
 `evals/results/baseline.md`, produced by `python evals/run_evals.py` against `tests/fixtures/toy_repo` (a small package with 2 planted bugs) using a `FakeClient` scripted with the correct action sequence per task — this makes the number reproducible offline, but it measures "does the pipeline work end to end," not model quality (see below):
 
-**Resolved: 13/13 · avg tokens: 3106 · avg tool calls: 2.2**, split across `single_loop` (7 tasks), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question.
+**Resolved: 14/14 · avg tokens: 3405 · avg tool calls: 2.4**, split across `single_loop` (8 tasks), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
 
 ## Learning & evolution
 

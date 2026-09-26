@@ -46,6 +46,12 @@ def judge(executor_result: ExecutorResult, evidence: dict | None, expects_change
     if expects_changes and not executor_result.touched_paths:
         return Verdict(False, "model reported done but changed no files")
 
+    # The model's own reproduction test still failing on its fix is direct
+    # evidence the fix doesn't work, whatever the rest of the suite says.
+    repro = (evidence or {}).get("repro")
+    if repro and not repro.get("passes_after"):
+        return Verdict(False, "reproduction test still fails after the fix")
+
     if evidence is None:
         return Verdict(True, "executor reported done; no test suite detected to gather evidence from")
 

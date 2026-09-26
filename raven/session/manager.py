@@ -163,7 +163,7 @@ class SessionManager:
             mode="act", strategy="plan_execute", checkpoints=checkpoints,
             approve_fn=self.approve_fn,
             understanding=self.state.understanding, plan=self.state.plan,
-            on_event=self.on_event,
+            on_event=self.on_event, reproduce=self.config.flag("verify", "reproduce", True),
         )
         self.state.last_result = result
         self.state.mode = "act"
@@ -181,7 +181,7 @@ class SessionManager:
             self.gateway, self.state.repo_root, goal,
             mode="autonomous", strategy=strategy, checkpoints=checkpoints,
             approve_fn=self.approve_fn,  # inert in autonomous mode — policy.py never asks there
-            on_event=self.on_event,
+            on_event=self.on_event, reproduce=self.config.flag("verify", "reproduce", True),
         )
         self.state.goal = goal
         self.state.last_result = result

@@ -2,10 +2,12 @@
 and documented here, not the full Ochiai/SBFL/behavioral-diff machinery
 originally scoped for later phases:
 
-  +0.5  repro_fixed:      strictly fewer failing tests post-fix than pre-fix
-                           (not "the whole suite is green" — unrelated
-                           pre-existing failures elsewhere shouldn't block
-                           credit for the fix actually made)
+  +0.5  repro_fixed:      the harness-verified reproduction test failed on
+                           the original code and passes on the fix (plan
+                           §11.2), OR strictly fewer failing suite tests
+                           post-fix than pre-fix (not "the whole suite is
+                           green" — unrelated pre-existing failures
+                           elsewhere shouldn't block credit for the fix)
   +0.3  no_new_failures:  every post-fix failure already existed pre-fix
   +0.1  executor_completed: the model called done() rather than aborting
   +0.1  edit_compiled:    no edit was auto-reverted for a syntax error
@@ -31,6 +33,7 @@ def compute_evidence(
     executor_completed: bool,
     edit_compiled: bool = True,
     collateral_changes: list[str] | None = None,
+    repro: dict | None = None,
 ) -> dict:
     if pre is None or post is None:
         return {
@@ -39,11 +42,14 @@ def compute_evidence(
             "no_new_failures": None,
             "pre_failed": None,
             "post_failed": None,
+            "repro": repro,
             "note": "no test suite evidence available",
         }
 
     no_new_failures = set(post.failed) <= set(pre.failed)
-    repro_fixed = no_new_failures and len(post.failed) < len(pre.failed)
+    suite_fixed = len(post.failed) < len(pre.failed)
+    repro_verified = bool(repro and repro.get("verified"))
+    repro_fixed = no_new_failures and (suite_fixed or repro_verified)
 
     score = 0.0
     if repro_fixed:
@@ -65,4 +71,5 @@ def compute_evidence(
         "pre_failed": pre.failed,
         "post_failed": post.failed,
         "collateral_changes": collateral_changes or [],
+        "repro": repro,
     }

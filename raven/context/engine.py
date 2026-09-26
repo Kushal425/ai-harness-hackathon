@@ -14,6 +14,7 @@ from raven.prompts import get_prompt
 # Text lives in prompts/base.yaml (plan §12.3).
 PROTOCOL_INSTRUCTIONS = get_prompt("protocol_instructions")
 ANSWER_MODE_INSTRUCTIONS = get_prompt("answer_mode_instructions")
+REPRODUCE_INSTRUCTIONS = get_prompt("reproduce_instructions")
 
 
 @dataclass
@@ -28,6 +29,8 @@ class ContextState:
     # cross-task lessons), rendered every turn alongside the digest --
     # small and high-signal, so never subject to decay like history is.
     run_lessons: list[str] = field(default_factory=list)
+    # plan §11.2: ask the model to write a failing reproduction test first
+    reproduce: bool = False
 
 
 class ContextEngine:
@@ -39,6 +42,8 @@ class ContextEngine:
         system_text = f"{PROTOCOL_INSTRUCTIONS}\nAvailable tools:\n{self.tool_docs}"
         if state.answer_mode:
             system_text += f"\n{ANSWER_MODE_INSTRUCTIONS}"
+        elif state.reproduce:
+            system_text += f"\n{REPRODUCE_INSTRUCTIONS}"
 
         sections = [f"# Task\n{state.task_card}"]
         if state.plan_text:

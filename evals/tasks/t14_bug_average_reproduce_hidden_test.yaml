@@ -1,0 +1,42 @@
+id: bug_average_reproduce_hidden_test
+task_type: bug_fix
+strategy: single_loop
+# Issue-style goal (no test named), graded by a hidden test the agent never
+# sees; the agent must reproduce first, and Raven verifies the reproduction
+# fails on the original code and passes on the fix (plan §11.2).
+goal: >
+  average([2, 4, 6]) returns 3.0 but should return 4.0.
+check:
+  hidden_test: |
+    from calc.arithmetic import average
+
+
+    def test_average_hidden():
+        assert average([2, 4, 6]) == 4
+        assert average([5]) == 5
+  expect_repro_verified: true
+scripted_responses:
+  - |
+    ```action
+    {"tool": "search", "args": {"pattern": "def average"}}
+    ```
+  - |
+    ```action
+    {"tool": "create", "args": {"path": ".raven/repro/test_repro.py", "content": "from calc.arithmetic import average\n\n\ndef test_average_of_2_4_6():\n    assert average([2, 4, 6]) == 4\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": ".raven/repro/test_repro.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/arithmetic.py", "search": "return sum(numbers) / (len(numbers) + 1)", "replace": "return sum(numbers) / len(numbers)"}}
+    ```
+  - |
+    ```action
+    {"tool": "tests", "args": {"target": ".raven/repro/test_repro.py"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "average() divided by len+1; now divides by len. Reproduction fails before, passes after."}}
+    ```

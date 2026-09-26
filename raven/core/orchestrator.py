@@ -43,7 +43,9 @@ from raven.repo.files import exclude_raven_dir
 from raven.report.report import write_report
 from raven.tools.registry import RunContext, build_default_registry
 from raven.verify.behavior_diff import diff_zero_arg_functions, find_collateral_changes
-from raven.verify.reproduce import capture_post_fix, capture_pre_fix
+from raven.verify.reproduce import (
+    archive_repro, capture_post_fix, capture_pre_fix, clear_repro, repro_applicable, verify_repro,
+)
 from raven.verify.sbfl import run_sbfl
 from raven.verify.score import compute_evidence
 from raven.verify.trace import trace_test
@@ -130,6 +132,7 @@ def run_orchestrator(
     understanding: Understanding | None = None,
     plan: Plan | None = None,
     on_event=None,
+    reproduce: bool = True,
 ) -> OrchestratorResult:
     """`understanding`/`plan`, if supplied, come from a prior `/plan` the user
     already reviewed (plan §3: Plan mode "waits for approval or edits") —
@@ -169,6 +172,12 @@ def run_orchestrator(
     if strategy in ("plan_execute", "delegated") and understanding is None:
         understanding = understand(gateway, goal)
 
+    # REPRODUCE (plan §11.2): the executor writes a failing test first;
+    # verify_repro later checks it fail-before/pass-after on its own.
+    wants_changes = expects_changes(goal, understanding)
+    reproduce = reproduce and repro_applicable(digest, understanding, wants_changes, goal)
+    clear_repro(repo_root)
+
     # VERIFY baseline is captured before any edits, for either strategy
     _emit("verify_start", {"phase": "baseline"})
     pre = capture_pre_fix(registry, ctx, digest, understanding)
@@ -181,19 +190,23 @@ def run_orchestrator(
             max_replans, max_iterations, half_life, pre_evidence=pre, digest=digest, repo_root=repo_root,
             delegate=(strategy == "delegated"), initial_plan=plan,
             pinned_lessons=pinned_lessons, reflection=reflection, on_event=on_event,
+            reproduce=reproduce, wants_changes=wants_changes,
         )
     else:
         executor_result = run_single_loop(
             gateway, registry, ctx, checkpoints, goal,
             digest_summary=digest_summary, max_iterations=max_iterations, half_life=half_life,
-            run_lessons=pinned_lessons, on_event=on_event,
+            run_lessons=pinned_lessons, on_event=on_event, reproduce=reproduce,
         )
         if not executor_result.completed:
             reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
         post = capture_post_fix(registry, ctx, digest, understanding)
         collateral = _collateral_changes(repo_root, checkpoints, understanding)
-        evidence = compute_evidence(pre, post, executor_result.completed, collateral_changes=collateral)
-        verdict = judge(executor_result, evidence, expects_changes(goal, understanding))
+        repro = verify_repro(registry, ctx, checkpoints) if executor_result.completed else None
+        evidence = compute_evidence(
+            pre, post, executor_result.completed, collateral_changes=collateral, repro=repro,
+        )
+        verdict = judge(executor_result, evidence, wants_changes)
         _emit("verify_done", {"evidence": evidence})
 
     # Cross-task lesson extraction (plan §12.2) — best-effort, must never
@@ -204,6 +217,7 @@ def run_orchestrator(
         pass
 
     run_dir = (runs_dir or (repo_root / ".raven" / "runs")) / run_id
+    archive_repro(repo_root, run_dir, (evidence or {}).get("repro"))
     report_path = write_report(
         run_dir, run_id=run_id, goal=goal, understanding=understanding, plan=plan,
         executor_result=executor_result, evidence=evidence, verdict=verdict, gateway_stats=gateway.stats,
@@ -222,7 +236,7 @@ def _run_plan_execute(
     max_replans, max_iterations, half_life, pre_evidence, digest, repo_root=None,
     delegate: bool = False, delegate_min_reads: int = 4, initial_plan: Plan | None = None,
     pinned_lessons: list[str] | None = None, reflection: RunReflection | None = None,
-    on_event=None,
+    on_event=None, reproduce: bool = False, wants_changes: bool = True,
 ):
     def _emit(event, data):
         if on_event is None:
@@ -265,6 +279,7 @@ def _run_plan_execute(
                 digest_summary=digest_summary, plan_text=plan.as_text(),
                 max_iterations=max_iterations, half_life=half_life,
                 run_lessons=pinned_lessons + reflection.lessons, on_event=on_event,
+                reproduce=reproduce,
             )
             step.status = "done" if executor_result.completed else "failed"
             _emit("plan_step", {"id": step.id, "action": step.action, "status": step.status})
@@ -274,8 +289,11 @@ def _run_plan_execute(
 
         post = capture_post_fix(registry, ctx, digest, understanding)
         collateral = _collateral_changes(repo_root, checkpoints, understanding) if repo_root else []
-        evidence = compute_evidence(pre_evidence, post, executor_result.completed, collateral_changes=collateral)
-        verdict = judge(executor_result, evidence, expects_changes(goal, understanding))
+        repro = verify_repro(registry, ctx, checkpoints) if executor_result.completed else None
+        evidence = compute_evidence(
+            pre_evidence, post, executor_result.completed, collateral_changes=collateral, repro=repro,
+        )
+        verdict = judge(executor_result, evidence, wants_changes)
 
         if verdict.accepted or replans_left <= 0:
             break

@@ -72,7 +72,7 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
     # This is the hackathon scoring path; it must never wait on rendering.
     result = run_orchestrator(
         gateway, repo_root, goal, mode="autonomous", strategy=strategy,
-        on_event=plain_event_printer,
+        on_event=plain_event_printer, reproduce=config.flag("verify", "reproduce", True),
     )
 
     print("\n===== RAVEN RESULT =====")
@@ -80,6 +80,9 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
     print(f"accepted: {result.accepted}")
     print(f"reason:   {result.reason}")
     if result.evidence:
+        repro = result.evidence.get("repro")
+        if repro:
+            print(f"repro:    fails before fix: {repro['failed_before']}  ·  passes after: {repro['passes_after']}")
         print(f"evidence: {result.evidence}")
     print(f"report:   {result.report_path}")
 

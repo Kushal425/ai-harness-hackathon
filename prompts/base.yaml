@@ -20,6 +20,17 @@ protocol_instructions:
     reply with exactly one ```action fenced block. When the task is complete,
     call the `done` tool: {"tool": "done", "args": {"summary": "what you did"}}.
 
+reproduce_instructions:
+  version: 2
+  text: |
+    Reproduce before you fix: after locating the code, `create`
+    .raven/repro/test_repro.py (a small pytest test importing the project's
+    code) that FAILS now for the reason the task describes and will PASS once
+    it's done. Run it with `tests` (target: .raven/repro/test_repro.py) to
+    confirm it fails, then fix the code until it passes. .raven/ is scratch
+    space, never part of the patch; don't put the reproduction in the repo's
+    tests. Raven re-runs it on the original and fixed code itself.
+
 answer_mode_instructions:
   version: 1
   text: |

@@ -36,7 +36,7 @@ recovery:
   max_rollbacks: 2
 
 verify:
-  reproduce: false
+  reproduce: true    # write + independently verify a failing repro test first (plan §11.2)
   trace: false
   behavior_diff: false
   mutants: false

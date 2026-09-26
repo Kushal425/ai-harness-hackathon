@@ -16,6 +16,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Callable
 
+from raven.recovery.checkpoints import is_scratch_path
+
 READ_TOOLS = {"read", "search", "symbols", "outline", "tests", "git_status", "git_diff"}
 SHELL_ALLOWLIST = {"python", "python3", "pytest", "ls", "cat", "grep", "echo", "pwd", "find"}
 
@@ -57,7 +59,9 @@ def check_policy(
         # Only *editing* an existing test file is protected — creating a new
         # test file is how test_writing tasks and feature tasks add coverage,
         # and `create` already refuses to overwrite anything that exists.
-        if tool_name == "edit" and _is_test_path(path):
+        # Raven's own scratch area (.raven/, e.g. the reproduction test) is
+        # never part of the patch, so its test files aren't protected.
+        if tool_name == "edit" and _is_test_path(path) and not is_scratch_path(path):
             return PolicyDecision.DENY
         if mode == "plan":
             # plan mode previews, never writes silently — ask if there's a

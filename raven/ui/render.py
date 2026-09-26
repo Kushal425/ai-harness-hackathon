@@ -82,6 +82,11 @@ def render_verification(evidence: dict | None):
         glyph = "✓" if value else "✗"
         lines.append(f"{glyph} {label}")
 
+    repro = evidence.get("repro")
+    if repro:
+        lines.append(f"{'✓' if repro.get('failed_before') else '✗'} Reproduction test fails on the original code")
+        lines.append(f"{'✓' if repro.get('passes_after') else '✗'} Reproduction test passes on the fix")
+
     score = evidence.get("evidence_score")
     if score is not None:
         lines.append(f"\nEvidence score: {score:.2f}")

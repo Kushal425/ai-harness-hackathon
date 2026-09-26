@@ -41,6 +41,26 @@ def score_task(check: dict, repo_dir: Path, orchestrator_result) -> tuple[bool, 
         if not result.ok:
             return False, f"ground-truth check failed: {check['test_target']}"
 
+    if check.get("hidden_test"):
+        # A grader test the agent never saw, like the hackathon's hidden
+        # tests: written in only after the run finishes, then removed.
+        hidden = repo_dir / ".raven" / "hidden" / "test_hidden.py"
+        hidden.parent.mkdir(parents=True, exist_ok=True)
+        hidden.write_text(check["hidden_test"])
+        try:
+            result = build_default_registry().dispatch(
+                "tests", {"target": str(hidden.relative_to(repo_dir))}, RunContext(repo_root=repo_dir, mode="act"),
+            )
+        finally:
+            hidden.unlink(missing_ok=True)
+        if not result.ok:
+            return False, "hidden test failed"
+
+    if check.get("expect_repro_verified"):
+        repro = (orchestrator_result.evidence or {}).get("repro") or {}
+        if not repro.get("verified"):
+            return False, f"reproduction not verified fail->pass: {repro}"
+
     if check.get("summary_contains"):
         summary = orchestrator_result.executor_result.summary.lower()
         missing = [s for s in check["summary_contains"] if s.lower() not in summary]

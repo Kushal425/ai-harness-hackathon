@@ -34,6 +34,10 @@ class RavenConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     raw: dict = field(default_factory=dict)
 
+    def flag(self, section: str, key: str, default: bool) -> bool:
+        """A boolean switch from config.yaml, e.g. flag("verify", "reproduce", True)."""
+        return bool((self.raw.get(section) or {}).get(key, default))
+
 
 def _load_yaml(path: Path) -> dict:
     if not path.exists():

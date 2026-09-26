@@ -10,6 +10,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+SCRATCH_DIR = ".raven"
+
+
+def is_scratch_path(path: str) -> bool:
+    p = path.replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    return p == SCRATCH_DIR or p.startswith(SCRATCH_DIR + "/")
+
 
 @dataclass
 class Checkpoint:
@@ -55,7 +64,10 @@ class CheckpointManager:
 
     @property
     def touched_paths(self) -> list[str]:
-        return [cp.path for cp in self._checkpoints]
+        """Paths the run changed, i.e. the patch. Raven's own scratch files
+        (.raven/, e.g. the reproduction test) are snapshotted for a clean
+        restore but are not part of the patch."""
+        return [cp.path for cp in self._checkpoints if not is_scratch_path(cp.path)]
 
     def original_content(self, path: str) -> str | None:
         """The pre-write snapshot for `path`, or None if it didn't exist
