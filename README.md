@@ -1,16 +1,56 @@
 # Raven
 
-A self-improving, conversational coding-agent harness, built for the **LCC × DevClub AI Coding Harness Hackathon 2026**.
+An autonomous coding-agent harness built for the **LCC × DevClub AI Coding Harness Hackathon 2026**, designed around one idea:
 
-Raven turns a foundation language model into an autonomous software engineer: it understands a task, plans the work, navigates the repository with purpose-built tools, makes reversible edits, proves its changes with evidence (not claims), recovers from failures on its own, and talks with you throughout.
+> **Don't ask the model whether a patch is right. Generate a few candidate fixes, run them against each other, and spend the model's judgement only where they disagree — on the single input that separates them, as a concrete multiple-choice question backed by evidence from the repository.**
 
-## Status
+We call it **Crux**. `make demo` shows it in 30 seconds, offline:
 
-All three build phases are implemented:
+```
+◆ probe    reproduced: chunk([1, 2, 3, 4, 5], 2) -> => [[1, 2], [3, 4]]
+   ✓ c1 alive (2 changed lines) — stop the range at len(items)
+   ✓ c2 alive (3 changed lines) — ceiling-divide to count chunks
+   ✓ c3 alive (5 changed lines) — loop to the end
+◆ cluster  3 surviving candidates -> 2 behaviour cluster(s) over 13 inputs
+✦ crux     chunk([], 2)   [c1, c3] => []  vs  [c2] => [[]]
+⚖ verdict  A: window() documents that empty input yields no windows; tests assert window([], 2) == []
+★ select   selected c1 (2 changed lines)
 
-- **Phase 1** — the core pipeline: CLI, LLM gateway, tool layer + policy, repo digest, a text action-protocol executor, task understanding + planner, and a verifier core that scores evidence rather than trusting the model's word.
-- **Phase 2** — robustness and interaction: a recovery system (stall detection, repeated-action nudges, a capped Debugger sub-agent), a TUI with real approval prompts and a hard fallback to a plain REPL, execution tracing + Ochiai fault localization + a behavioral-diff check, and Explorer/Reviewer sub-agents behind a `delegated` executor strategy.
-- **Phase 3** — self-improvement: prompts extracted to versioned YAML, an in-run reflection + cross-task lesson loop with persistent project memory, and an offline prompt-evolution/config-tuning harness (see [Learning & evolution](#learning--evolution) for what's genuinely validated vs. what needs a live model).
+hidden grader test (never shown to Raven):
+  selected c1: PASS
+  rejected c2: FAIL  (passed every visible test — only the crux caught it)
+```
+
+## Why this design
+
+Every choice below comes from a measured result, not a hunch:
+
+| Finding | Source | What Raven does about it |
+|---|---|---|
+| 60–69% of agent failures reached and edited the *correct* function, then submitted a wrong patch; agents wrote gold-identical patches and later overwrote them | [Coherence Collapse](https://arxiv.org/abs/2603.24631) | Candidates are **immutable snapshots**, selected by evidence — a good edit is never overwritten |
+| Patch-overfitting detectors lose to *random selection* in 71–96% of cases | [arXiv 2603.11262](https://arxiv.org/abs/2603.11262) | Selection uses **executed behaviour** only, never a static or learned judgement |
+| Generated reproduction tests: 213/300 reproduced the bug, only 94 correctly verified the fix | [Agentless](https://arxiv.org/html/2407.01489) | The model's reproduction is split into **observation** (measured) and **expectation** (a belief, dropped if not a valid expression) |
+| 77% of SWE-bench Verified instances admit a wrong patch that passes the tests; stronger tests cut top agents by 4–9 pts | [Probe to Generate](https://arxiv.org/abs/2604.01518) | Candidates act as each other's **mutants**; Crux finds the input that exposes the wrong one |
+| Inputs are cheap, oracles (assertions) are the hard part | [FIXCHECK, ICST'24](https://conf.researchr.org/details/icst-2024/icst-2024-papers/17/Improving-Patch-Correctness-Analysis-via-Random-Testing-and-Large-Language-Models) | Oracle queries only where candidates **disagree**: usually 0–1 per task |
+| Harness variance is 7.8× model variance; 22/81 runs killed at the time limit already had a passing patch | [Binding Constraint](https://arxiv.org/abs/2605.23950), [Harness isolation](https://arxiv.org/abs/2609.11987) | Deterministic tooling does the work; the run keeps its **best patch so far** |
+| Qwen3-235B produces a successfully submitted patch in only 26.5% of attempts; DeepSeek caches prompt prefixes at ~1/10 the price | [SWE-Compass](https://arxiv.org/pdf/2511.05459), [DeepSeek](https://api-docs.deepseek.com/news/news0802/) | **One-shot structured calls** (no long tool loop on the main path), deterministic edit application, **stable prompt prefixes** |
+
+## How a task runs
+
+```
+intake + ranked repo map (no model) → LOCALIZE (1 call) → PROBE (1 call; run on the original code)
+→ CANDIDATES (3 calls, in parallel, shared cached prefix) → EXECUTE each: probe + targeted tests (no model)
+→ CRUX: run survivors on the issue's example, type-aware variants of it, and calls harvested from the
+  repo's tests; cluster by behaviour (no model) → ADJUDICATE the most informative disagreement (0–2 small calls)
+→ SELECT (largest surviving cluster, smallest diff) → APPLY + VALIDATE → certificate
+```
+
+- **Typical cost:** 6 model calls. The scripted demo uses about 2.8k tokens; live use is expected in the tens of thousands, against 15–30 full-context calls for a ReAct loop.
+- **If a round fails,** a deterministic diagnosis — edit didn't apply / behaviour unchanged (wrong location → next-ranked functions) / broke tests / missed the expectation — becomes targeted feedback for one more round, not a restart.
+- **If Crux can't produce a surviving fix** (or the repo has no Python to localize), the ReAct agent loop takes over with Crux's findings and the remaining budget; failing that, the best candidate so far is kept, labelled partial.
+- **Every run writes a Crux ledger** to `.raven/runs/<id>/report.md`: locations, probe before/after, every candidate and why it lived or died, the behaviour clusters, each crux with its options, verdict and evidence, the patch, and model usage by stage.
+
+**Honest limits.** If every candidate shares the same wrong belief, there is nothing to disagree about; the certificate then says "unanimous", not "proven". Diversity comes from different location hypotheses and framings, not only temperature. Crux executes Python; other languages go straight to the agent loop.
 
 ## Quick start
 
@@ -30,11 +70,12 @@ export RAVEN_REPO=/path/to/target-repo          # then: make run
 
 In a real terminal this launches the TUI (rich panels, live tool stream). `TERM=dumb` or a failing TUI falls back to a plain REPL automatically.
 
-`make test` runs the full offline test suite (230 tests; no API key or network — the model is a scripted `FakeClient`).
+`make test` runs the full offline test suite (244 tests; no API key or network — the model is a scripted `FakeClient`).
 
 ```bash
 make test               # offline unit + integration tests
-make eval               # eval harness against the toy_repo fixture — see Results below
+make eval               # eval harness (toy_repo + crux_demo fixtures) — see Results below
+make demo               # the Crux moment, offline, with the model's replies scripted
 ```
 
 **Model.** `config.yaml` ships the model Raven was tested against end to end (`openai/gpt-oss-20b` on Groq's OpenAI-compatible endpoint). If the organisers prescribe another model or endpoint, set `RAVEN_MODEL` / `RAVEN_BASE_URL` — no code changes. The key is only ever read from `AI_API_KEY`; a scored (non-interactive) run without it stops with an error instead of quietly using the offline fake model.
@@ -72,6 +113,8 @@ Slash commands: `/help /plan /act /auto /review /diff /undo /checkpoints /eviden
 ```
 raven/
 ├── cli.py · config.py · prompts.py           entry point, config loading, versioned prompt loader
+├── crux/           issue · repomap · probe · candidates · patching · regression · disagree ·
+│                   adjudicate · certificate · pipeline      the default strategy (see above)
 ├── llm/            gateway.py · providers.py · fake.py · protocol.py
 ├── ui/              tui.py (rich + prompt_toolkit) · repl.py (plain fallback)
 ├── session/         manager.py                mode/slash-command logic, shared by both UIs
@@ -89,7 +132,7 @@ raven/
 
 prompts/base.yaml    every prompt the harness sends to a model, versioned (plan §12.3)
 evals/                tasks/*.yaml · run_evals.py · results/baseline.md
-tests/                 210 offline tests (FakeClient) + tests/fixtures/toy_repo
+tests/                 244 offline tests (FakeClient) + tests/fixtures/{toy_repo,crux_demo}
 ```
 
 **Orchestrator state machine** (`raven/core/orchestrator.py`):
@@ -153,7 +196,7 @@ exception raised at line 13
 
 `evals/results/baseline.md`, produced by `python evals/run_evals.py` against `tests/fixtures/toy_repo` (a small package with 2 planted bugs) using a `FakeClient` scripted with the correct action sequence per task — this makes the number reproducible offline, but it measures "does the pipeline work end to end," not model quality (see below):
 
-**Resolved: 14/14 · avg tokens: 3439 · avg tool calls: 2.4**, split across `single_loop` (8 tasks), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
+**Resolved: 16/16 · avg tokens: 3312 · avg tool calls: 2.4**, split across `crux` (2 tasks), `single_loop` (8), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
 
 ## Learning & evolution
 
@@ -191,7 +234,7 @@ Being precise about what's real here, because it's easy to overstate:
 
 ## Submission checklist (plan §22)
 
-- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified on a fresh copy of the tree with no `.venv`/`.raven`, on Python 3.9.6 and 3.12: `make setup` OK, `make test` 230/230; `make run` refuses to start a scored run without `AI_API_KEY` or without a target repository, with instructions; a piped issue runs the full pipeline and leaves only the patch)
+- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified on a fresh copy of the tree with no `.venv`/`.raven`, on Python 3.9.6 and 3.12: `make setup` OK, `make test` 244/244, `make demo` OK; `make run` refuses to start a scored run without `AI_API_KEY` or without a target repository, with instructions; a piped issue runs the full pipeline and leaves only the patch)
 - [x] `AI_API_KEY` from environment only; `.env.example` has an empty value; no secrets in the repo
 - [x] Model/endpoint defined in config, overridable by env (`RAVEN_MODEL`, `RAVEN_BASE_URL`)
 - [x] Seed, temperature, frozen base config documented (`config.yaml`); `config.tuned.yaml`/`prompts.tuned.yaml` are supported override paths, not present by default (no genuine tuning run has been done — see above)

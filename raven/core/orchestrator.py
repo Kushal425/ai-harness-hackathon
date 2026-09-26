@@ -25,6 +25,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from raven.agents.explorer import explore, should_delegate_to_explorer
 from raven.agents.reviewer import review_diff
@@ -164,6 +165,13 @@ def run_orchestrator(
             pass
 
     exclude_raven_dir(repo_root)
+
+    if strategy == "crux":
+        return _run_crux_strategy(
+            gateway, repo_root, goal, run_id=run_id, checkpoints=checkpoints, budget=budget,
+            settings=settings, runs_dir=runs_dir, on_event=on_event, mode=mode, approve_fn=approve_fn,
+            max_iterations=max_iterations, half_life=half_life,
+        )
 
     # DIGEST
     digest = build_digest(repo_root)
@@ -324,3 +332,103 @@ def _run_plan_execute(
                           verified=verdict.verified)
 
     return executor_result, plan, verdict, evidence
+
+
+def _run_crux_strategy(gateway, repo_root, goal, *, run_id, checkpoints, budget, settings, runs_dir,
+                       on_event, mode, approve_fn, max_iterations, half_life) -> OrchestratorResult:
+    """Crux (raven/crux/): candidates -> execution -> disagreement -> one
+    adjudicated question per crux -> select -> validate. Falls back to the
+    ReAct executor (seeded with what Crux learned) when Crux can't produce
+    a surviving fix; keeps the best candidate so far if that fails too."""
+    from raven.crux import certificate
+    from raven.crux.pipeline import run_crux
+    from raven.crux.probe import run_probe
+    from raven.crux.regression import related_tests, run_tests
+    from raven.crux.repomap import RepoMap
+
+    repo_root = Path(repo_root).resolve()
+    try:
+        out = run_crux(gateway, repo_root, goal, budget=budget, k=settings.candidates,
+                       max_candidates=settings.max_candidates, parallel=settings.parallel_calls,
+                       on_event=on_event)
+    except Exception as exc:  # Crux must never take the run down with it
+        out = None
+        _emit_safe(on_event, "crux", {"stage": "error", "text": f"crux failed: {exc}; falling back"})
+
+    def _apply(cand) -> None:
+        for path, text in cand.files.items():
+            checkpoints.snapshot(path)
+            (repo_root / path).write_text(text)
+
+    if out is not None and out.winner is not None:
+        _apply(out.winner)
+        _emit_safe(on_event, "verify_start", {"phase": "final"})
+        after = run_probe(repo_root, out.probe) if out.probe else None
+        tests = sorted(set(out.tests_run) | set(related_tests(RepoMap(repo_root), list(out.winner.files))))
+        ran, after_failed, _ = run_tests(repo_root, tests)
+        out.tests_run = tests
+        evidence = certificate.build_evidence(out, after, after_failed, tests_ran=ran and bool(tests))
+        out.probe_after = after
+        accepted = (not out.reproduced or bool(evidence["repro_fixed"])) and evidence["no_new_failures"] is not False
+        verified = bool(out.reproduced or (ran and tests))
+        verdict = Verdict(accepted, ("" if verified else "UNVERIFIED: ") + certificate.reason(out, evidence), verified)
+        _emit_safe(on_event, "verify_done", {"evidence": evidence})
+        executor_result = ExecutorResult(
+            completed=True, summary=f"{out.winner.hypothesis}\n\n{out.winner.diff}", iterations=len(out.candidates),
+            tool_calls=len(out.candidates), touched_paths=checkpoints.touched_paths,
+        )
+        return _finish_crux(gateway, repo_root, goal, run_id, runs_dir, executor_result, evidence, verdict,
+                            certificate.markdown(out, evidence), checkpoints)
+
+    # Fallback: the ReAct executor, with the remaining budget and Crux's hints.
+    hints = out.hints() if out is not None else ""
+    remaining = RunSettings(**{**settings.__dict__})
+    if settings.budget_tokens:
+        remaining.budget_tokens = max(1, settings.budget_tokens - budget.tokens_used)
+    if settings.budget_seconds:
+        remaining.budget_seconds = max(1.0, settings.budget_seconds - budget.seconds_used)
+    _emit_safe(on_event, "crux", {"stage": "fallback", "text": "no surviving candidate; handing over to the agent loop"})
+    result = run_orchestrator(
+        gateway, repo_root, goal + (f"\n\nWHAT RAVEN ALREADY FOUND:\n{hints}" if hints else ""),
+        mode=mode, strategy="single_loop", max_iterations=max_iterations, half_life=half_life,
+        runs_dir=runs_dir, checkpoints=checkpoints, approve_fn=approve_fn, on_event=on_event,
+        settings=remaining,
+    )
+    if result.accepted or out is None or out.best is None or out.best.status == "broke-tests":
+        return result
+    # Anytime: the agent loop failed too -- leave the best candidate that
+    # improved behaviour without breaking tests, labelled as partial.
+    checkpoints.restore_to_clean()
+    _apply(out.best)
+    evidence = certificate.build_evidence(out, run_probe(repo_root, out.probe) if out.probe else None,
+                                          out.baseline_failed, tests_ran=False)
+    verdict = Verdict(False, f"partial: best candidate {out.best.id} kept ({out.best.status}); "
+                             f"agent fallback: {result.reason}", True)
+    executor_result = ExecutorResult(completed=False, summary=out.best.diff, iterations=len(out.candidates),
+                                     tool_calls=len(out.candidates), touched_paths=checkpoints.touched_paths,
+                                     aborted_reason=verdict.reason)
+    return _finish_crux(gateway, repo_root, goal, run_id, runs_dir, executor_result, evidence, verdict,
+                        certificate.markdown(out, evidence), checkpoints)
+
+
+def _finish_crux(gateway, repo_root, goal, run_id, runs_dir, executor_result, evidence, verdict, ledger_md,
+                 checkpoints) -> OrchestratorResult:
+    run_dir = (runs_dir or (repo_root / ".raven" / "runs")) / run_id
+    report_path = write_report(
+        run_dir, run_id=run_id, goal=goal, understanding=None, plan=None, executor_result=executor_result,
+        evidence=evidence, verdict=verdict, gateway_stats=gateway.stats, extra_markdown=ledger_md,
+    )
+    return OrchestratorResult(
+        run_id=run_id, accepted=verdict.accepted, reason=verdict.reason, verified=verdict.verified,
+        understanding=None, plan=None, executor_result=executor_result, evidence=evidence,
+        report_path=report_path, checkpoints=checkpoints,
+    )
+
+
+def _emit_safe(on_event, event, data) -> None:
+    if on_event is None:
+        return
+    try:
+        on_event(event, data)
+    except Exception:
+        pass

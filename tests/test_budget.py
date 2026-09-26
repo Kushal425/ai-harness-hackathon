@@ -77,7 +77,8 @@ def test_every_config_key_is_read():
     read_by_code = {
         "llm": {"provider", "base_url", "model", "temperature", "seed", "max_output_tokens",
                 "tool_protocol", "request_timeout_s", "max_retries"},
-        "executor": {"strategy", "max_iterations", "max_replans", "delegate_min_reads"},
+        "executor": {"strategy", "candidates", "max_candidates", "parallel_calls", "max_iterations",
+                     "max_replans", "delegate_min_reads"},
         "context": {"half_life"},
         "recovery": {"stall_turns", "identical_failures_for_debugger"},
         "verify": {"reproduce", "trace", "behavior_diff"},

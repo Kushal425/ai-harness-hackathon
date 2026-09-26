@@ -42,6 +42,9 @@ class RunSettings:
     lessons: bool = True
     in_run_reflection: bool = True
     max_lessons_pinned: int = 3
+    candidates: int = 3          # crux: first-round candidate fixes
+    max_candidates: int = 5      # crux: cap across rounds
+    parallel_calls: bool = True  # crux: candidate calls run concurrently
 
 
 @dataclass
@@ -71,6 +74,9 @@ class RavenConfig:
                 lessons=bool(learn.get("lessons", True)),
                 in_run_reflection=bool(learn.get("in_run_reflection", True)),
                 max_lessons_pinned=int(learn.get("max_lessons_pinned", 3)),
+                candidates=int(ex.get("candidates", 3)),
+                max_candidates=int(ex.get("max_candidates", 5)),
+                parallel_calls=bool(ex.get("parallel_calls", True)),
             ),
         }
 

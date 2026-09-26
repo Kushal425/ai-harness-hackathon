@@ -44,10 +44,14 @@ class LLMGateway:
         stream: bool = False,
         on_token: Callable[[str], None] | None = None,
         tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> CompletionResult:
-        """`tools`: optional native tool schemas, passed through to clients
-        that support them (OpenAICompatibleClient); others never see it."""
+        """`tools`: optional native tool schemas; `temperature`: per-call
+        override (candidate diversity). Passed only to clients that take
+        them (OpenAICompatibleClient); others never see them."""
         extra = {"tools": tools} if tools else {}
+        if temperature is not None:
+            extra["temperature"] = temperature
         attempt = 0
         last_exc: Exception | None = None
         while attempt <= self.max_retries:

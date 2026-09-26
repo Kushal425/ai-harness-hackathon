@@ -20,6 +20,7 @@ class FakeClient:
         stream: bool = False,
         on_token: Callable[[str], None] | None = None,
         tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> CompletionResult:
         self.calls.append(messages)
         text = self._responses.pop(0) if self._responses else "(FakeClient: no more scripted responses)"

@@ -17,8 +17,11 @@ llm:
   max_retries: 5
 
 executor:
-  strategy: single_loop   # single_loop | plan_execute | delegated
-  max_iterations: 30      # model turns per executor loop (the budgets below cap the whole run)
+  strategy: crux          # crux | single_loop | plan_execute | delegated
+  candidates: 3           # crux: first-round candidate fixes (one call each, run in parallel)
+  max_candidates: 5       # crux: cap across the adaptive second round
+  parallel_calls: true    # crux: candidate calls run concurrently (latency ~ one call)
+  max_iterations: 30      # agent-loop turns (single_loop, and crux's fallback)
   max_replans: 2          # plan_execute / delegated only
   delegate_min_reads: 4   # delegated only: when a plan step goes to the Explorer
 

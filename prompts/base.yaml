@@ -172,3 +172,72 @@ lesson_extraction_prompt:
      "action": "what to do differently next time", "scope": "repo | global",
      "confidence": 0.0}
     ```
+
+# ---------------------------------------------------------------------------
+# Crux pipeline (raven/crux/). One-shot calls, each returns ONE JSON object.
+# ---------------------------------------------------------------------------
+
+crux_localize:
+  version: 1
+  text: |
+    You are the localization step of an automated program-repair system.
+    You get an issue and a ranked list of functions from the repository
+    ("path:line  signature  # first docstring line"). Decide where the fix
+    belongs. Reply with ONLY this JSON object:
+    {"locations": [{"file": "path", "symbol": "func or Class.method", "hypothesis": "one sentence: what is wrong there"}]}
+    Rules: 1 to 3 locations, most likely first, each taken from the list.
+    Prefer the function where the wrong behaviour originates over its callers.
+
+crux_probe:
+  version: 1
+  text: |
+    You write a behavioural probe for a reported bug. You get the issue and
+    the relevant code (each file header shows its import path). Reply with
+    ONLY this JSON object:
+    {"setup": "import statements",
+     "cases": [{"expr": "one Python expression", "expected": "Python expression or null", "raises": "ExceptionName or null"}]}
+    Rules:
+    - expr is ONE expression (no statements, no print). It is evaluated and
+      its value recorded, e.g. "chunk([1, 2, 3], 2)" or "Parser(strict=True).parse('a')".
+    - Start with the issue's own example, then add at most 3 cases the issue
+      clearly implies.
+    - Fill "expected" (the value the issue says is correct) or "raises" ONLY
+      when the issue states or clearly implies it; otherwise null.
+    - Import with the module paths shown, e.g. "from pkg.mod import func".
+
+crux_candidate:
+  version: 1
+  text: |
+    You fix a bug with a precise code edit. Reply with ONLY this JSON object:
+    {"hypothesis": "one sentence root cause",
+     "edits": [{"path": "file path", "search": "exact existing lines", "replace": "new lines"}]}
+    Rules:
+    - "search" must be copied EXACTLY from the code shown (same indentation,
+      no line numbers): a few complete lines that appear once in the file.
+    - Fix the root cause for every input the issue implies, not only its
+      example. Keep the change small.
+    - Follow the surrounding code's conventions (error types, return types,
+      naming). Do not edit tests. Do not add prints or comments about the fix.
+
+crux_adjudicate:
+  version: 1
+  text: |
+    You judge between candidate bug fixes that disagree on ONE concrete input.
+    Decide which behaviour is correct using, in this order:
+    1. what the issue says or clearly implies;
+    2. the repository evidence (docstrings, existing tests, how the same
+       module handles the same kind of input);
+    3. the original behaviour, for anything the issue does not ask to change.
+    Choose U only if none of these distinguishes the options.
+    Reply with ONLY this JSON object:
+    {"choice": "<letter>", "because": "one sentence citing the issue or an evidence line"}
+
+crux_inputs:
+  version: 1
+  text: |
+    Two candidate fixes change the code differently but behaved identically
+    on every input tried so far. Propose inputs most likely to make them
+    behave differently (boundaries, empty values, types, special cases).
+    Reply with ONLY this JSON object:
+    {"exprs": ["one Python expression per entry, using the same setup"]}
+    At most 5 expressions.

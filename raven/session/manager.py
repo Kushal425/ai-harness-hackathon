@@ -178,7 +178,7 @@ class SessionManager:
 
     def _run_autonomous(self, goal: str) -> str:
         goal = expand_issue_refs(goal)  # a pasted GitHub issue URL -> its title + body
-        strategy = self.config.raw.get("executor", {}).get("strategy", "single_loop")
+        strategy = self.config.raw.get("executor", {}).get("strategy", "crux")
         checkpoints = CheckpointManager(self.state.repo_root)
         result = run_orchestrator(
             self.gateway, self.state.repo_root, goal,

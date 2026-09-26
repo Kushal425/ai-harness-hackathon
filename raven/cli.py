@@ -64,14 +64,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--issue", default=None, help="task/issue text; runs the autonomous pipeline")
     parser.add_argument("--issue-file", default=None, help="path to a file containing the issue text")
     parser.add_argument(
-        "--strategy", default=None, choices=["single_loop", "plan_execute", "delegated"],
+        "--strategy", default=None, choices=["crux", "single_loop", "plan_execute", "delegated"],
         help="executor strategy override (default: config.yaml's executor.strategy)",
     )
     return parser.parse_args(argv)
 
 
 def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | None) -> int:
-    strategy = strategy or config.raw.get("executor", {}).get("strategy", "single_loop")
+    strategy = strategy or config.raw.get("executor", {}).get("strategy", "crux")
     print(f"[raven] repo={repo_root}  strategy={strategy}  model={config.llm.model}")
     print("[raven] running...")
 

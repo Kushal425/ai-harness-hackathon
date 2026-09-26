@@ -48,11 +48,12 @@ class OpenAICompatibleClient:
             timeout=timeout_s,
         )
 
-    def _payload(self, messages: Iterable[Message], stream: bool, tools: list[dict] | None = None) -> dict:
+    def _payload(self, messages: Iterable[Message], stream: bool, tools: list[dict] | None = None,
+                 temperature: float | None = None) -> dict:
         payload = {
             "model": self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": self.temperature,
+            "temperature": self.temperature if temperature is None else temperature,
             "seed": self.seed,
             "max_tokens": self.max_output_tokens,
             "stream": stream,
@@ -88,11 +89,12 @@ class OpenAICompatibleClient:
         stream: bool = False,
         on_token: Callable[[str], None] | None = None,
         tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> CompletionResult:
         if stream and on_token is not None:
             return self._complete_streaming(messages, on_token)
         send_tools = tools if tools and self.native_tools is not False else None
-        resp = self._client.post("/chat/completions", json=self._payload(messages, False, send_tools))
+        resp = self._client.post("/chat/completions", json=self._payload(messages, False, send_tools, temperature))
         if resp.status_code == 400:
             err = self._error_of(resp)
             if err.get("code") == "tool_use_failed" and err.get("failed_generation"):
@@ -103,7 +105,7 @@ class OpenAICompatibleClient:
             if send_tools and "tool" in str(err.get("message", "")).lower():
                 # the endpoint won't take `tools` at all: text protocol from now on
                 self.native_tools = False
-                resp = self._client.post("/chat/completions", json=self._payload(messages, False))
+                resp = self._client.post("/chat/completions", json=self._payload(messages, False, None, temperature))
         resp.raise_for_status()
         if send_tools and self.native_tools is None:
             self.native_tools = True  # the endpoint accepted `tools`

@@ -1,7 +1,7 @@
 PY ?= python3
 VENV := .venv
 BIN := $(VENV)/bin
-.PHONY: setup run test eval evolve clean
+.PHONY: setup run test eval demo evolve clean
 
 setup:
 	@echo "========================================="
@@ -34,6 +34,9 @@ test:
 		exit 1; \
 	fi
 	$(BIN)/python -m pytest -q tests
+
+demo:
+	@$(BIN)/python evals/demo.py
 
 eval:
 	@$(BIN)/python evals/run_evals.py $(ARGS)

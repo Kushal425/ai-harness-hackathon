@@ -20,6 +20,8 @@ def repo(tmp_path):
 
 def _session(repo, responses):
     config = load_config()
+    # these tests script agent-loop (ReAct) responses; Crux has its own suite
+    config.raw.setdefault("executor", {})["strategy"] = "single_loop"
     gateway = LLMGateway(FakeClient(scripted_responses=list(responses)))
     return SessionManager(config, gateway, repo)
 

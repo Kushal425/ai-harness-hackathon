@@ -1,0 +1,38 @@
+id: crux_chunk_plausible_wrong_patch
+task_type: bug_fix
+strategy: crux
+fixture: crux_demo
+goal: chunk([1, 2, 3, 4, 5], 2) returns [[1, 2], [3, 4]] -- the last partial chunk [5] is dropped.
+check:
+  hidden_test: "from listkit.chunks import chunk\n\n\ndef test_hidden():\n    assert chunk([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]\n    assert chunk([], 2) == []\n    assert chunk([1], 3) == [[1]]\n"
+scripted_responses:
+- '```json
+
+  {"locations": [{"file": "listkit/chunks.py", "symbol": "chunk", "hypothesis": "the range stop skips the trailing partial chunk"}]}
+
+  ```'
+- '```json
+
+  {"setup": "from listkit.chunks import chunk", "cases": [{"expr": "chunk([1, 2, 3, 4, 5], 2)", "expected": "[[1, 2], [3, 4], [5]]", "raises": null}]}
+
+  ```'
+- '```json
+
+  {"hypothesis": "stop the range at len(items)", "edits": [{"path": "listkit/chunks.py", "search": "    return [items[i:i + size] for i in range(0, len(items) - size + 1, size)]", "replace": "    return [items[i:i + size] for i in range(0, len(items), size)]"}]}
+
+  ```'
+- '```json
+
+  {"hypothesis": "ceiling-divide to count chunks", "edits": [{"path": "listkit/chunks.py", "search": "    return [items[i:i + size] for i in range(0, len(items) - size + 1, size)]", "replace": "    n = max(1, -(-len(items) // size))\n    return [items[i * size:(i + 1) * size] for i in range(n)]"}]}
+
+  ```'
+- '```json
+
+  {"hypothesis": "loop to the end", "edits": [{"path": "listkit/chunks.py", "search": "    return [items[i:i + size] for i in range(0, len(items) - size + 1, size)]", "replace": "    out = []\n    for i in range(0, len(items), size):\n        out.append(items[i:i + size])\n    return out"}]}
+
+  ```'
+- '```json
+
+  {"choice": "A", "because": "window() documents that empty input yields no windows; tests assert window([], 2) == []"}
+
+  ```'

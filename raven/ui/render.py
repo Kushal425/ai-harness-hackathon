@@ -88,6 +88,15 @@ def render_verification(evidence: dict | None):
         lines.append(f"{'✓' if repro.get('failed_before') else '✗'} Reproduction test fails on the original code")
         lines.append(f"{'✓' if repro.get('passes_after') else '✗'} Reproduction test passes on the fix")
 
+    crux = evidence.get("crux")
+    if crux:
+        alive = sum(1 for c in crux["candidates"] if c["status"] in ("alive", "rejected-by-crux"))
+        lines.append(f"✓ {len(crux['candidates'])} candidate fixes, {alive} survived, "
+                     f"{len(crux['clusters'])} behaviour cluster(s) over {crux['inputs_tried']} inputs")
+        for v in crux["verdicts"]:
+            chosen = v["options"].get(v["choice"], {}).get("outcome", "unspecified")
+            lines.append(f"✦ crux {v['input']}  ->  {chosen}   ({v['because'][:90]})")
+
     score = evidence.get("evidence_score")
     if score is not None:
         lines.append(f"\nEvidence score: {score:.2f}")
@@ -117,3 +126,33 @@ def render_result_block(result) -> str:
         f"Report: {result.report_path}",
     ]
     return "\n".join(lines)
+
+
+_CRUX_GLYPH = {
+    "map": "◇", "localize": "◆", "probe": "◆", "candidate": " ", "adapt": "↻", "cluster": "◆",
+    "crux": "✦", "verdict": "⚖", "select": "★", "fallback": "↻", "error": "!",
+}
+
+
+def render_crux_line(data: dict):
+    """One line of the live Crux ledger (TUI)."""
+    from rich.text import Text
+
+    stage, text = data.get("stage", ""), str(data.get("text", ""))
+    line = Text()
+    if stage == "candidate":
+        status = data.get("status", "")
+        ok = status == "alive"
+        line.append("   ✓ " if ok else "   ✗ ", style=theme.SUCCESS if ok else theme.ERROR)
+        line.append(text[:160], style=theme.TEXT if ok else theme.MUTED)
+        return line
+    line.append(f"{_CRUX_GLYPH.get(stage, '·')} ", style=theme.ACCENT)
+    line.append(f"{stage:<9}", style=f"bold {theme.PRIMARY}")
+    style = f"bold {theme.ACCENT}" if stage in ("crux", "verdict", "select") else theme.SECONDARY
+    line.append(text[:200], style=style)
+    return line
+
+
+def render_crux_text(data: dict) -> str:
+    """Plain form for the REPL / piped path."""
+    return f"[crux:{data.get('stage', '')}] {data.get('text', '')}"[:240]

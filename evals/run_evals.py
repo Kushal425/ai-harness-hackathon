@@ -19,6 +19,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from raven.config import RunSettings  # noqa: E402
 from raven.core.orchestrator import run_orchestrator  # noqa: E402
 from raven.llm.fake import FakeClient  # noqa: E402
 from raven.llm.gateway import LLMGateway  # noqa: E402
@@ -27,7 +28,7 @@ from raven.tools.registry import RunContext, build_default_registry  # noqa: E40
 TASKS_DIR = Path(__file__).parent / "tasks"
 WORK_DIR = Path(__file__).parent / "work"
 RESULTS_DIR = Path(__file__).parent / "results"
-TOY_REPO = REPO_ROOT / "tests" / "fixtures" / "toy_repo"
+TOY_REPO = REPO_ROOT / "tests" / "fixtures" / "toy_repo"  # default fixture (also used by raven/learn/tune.py)
 
 
 def score_task(check: dict, repo_dir: Path, orchestrator_result) -> tuple[bool, str]:
@@ -80,13 +81,17 @@ def run_task(task_path: Path) -> dict:
     repo_dir = WORK_DIR / task_id
     if repo_dir.exists():
         shutil.rmtree(repo_dir)
-    shutil.copytree(TOY_REPO, repo_dir)
+    fixture = TOY_REPO.parent / task["fixture"] if task.get("fixture") else TOY_REPO
+    shutil.copytree(fixture, repo_dir, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
 
     gateway = LLMGateway(FakeClient(scripted_responses=list(task["scripted_responses"])))
 
     start = time.time()
+    # Scripted responses are consumed in order, so candidate calls run
+    # sequentially here (parallel_calls only changes latency, not results).
+    settings = RunSettings(candidates=task.get("candidates", 3), parallel_calls=False, trace=True)
     result = run_orchestrator(
-        gateway, repo_dir, goal=task["goal"], strategy=task.get("strategy", "single_loop")
+        gateway, repo_dir, goal=task["goal"], strategy=task.get("strategy", "single_loop"), settings=settings,
     )
     elapsed = time.time() - start
 

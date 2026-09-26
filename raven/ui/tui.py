@@ -129,7 +129,7 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
     from raven.session.manager import SessionManager
     from raven.ui import theme
     from raven.ui.animations import play_startup, should_show_animation
-    from raven.ui.render import render_result_block, render_tool_line, render_verification
+    from raven.ui.render import render_crux_line, render_result_block, render_tool_line, render_verification
 
     console = Console()
     repo_root = Path(repo_root)
@@ -150,6 +150,8 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
             # one line per call, printed once it's finished (✓ / ✗); a
             # separate "started" line just doubled every entry
             safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), data.get("ok")))
+        elif event == "crux":
+            safe_print(render_crux_line(data))
         elif event == "plan_step":
             glyph = {"active": "◉", "done": "✓", "failed": "✗"}.get(data.get("status"), "○")
             safe_print(f"[{theme.ACCENT}]{glyph}[/] [{theme.SECONDARY}]{data.get('id')}[/]  {data.get('action')}")

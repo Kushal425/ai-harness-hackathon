@@ -44,7 +44,7 @@ def fake_model(monkeypatch):
 
 def test_piped_issue_runs_the_full_autonomous_pipeline(repo, fake_model, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", _Stdin("average([2,4,6]) returns 3.0 instead of 4"))
-    code = cli.main(["--repo", str(repo)])
+    code = cli.main(["--repo", str(repo), "--strategy", "single_loop"])
 
     out = capsys.readouterr().out
     assert code == 0
@@ -56,7 +56,7 @@ def test_raven_issue_and_raven_repo_env_vars(repo, fake_model, monkeypatch, caps
     monkeypatch.setenv("RAVEN_ISSUE", "average() is off by one")
     monkeypatch.setenv("RAVEN_REPO", str(repo))
     monkeypatch.setattr("sys.stdin", _Stdin(""))
-    assert cli.main([]) == 0
+    assert cli.main(["--strategy", "single_loop"]) == 0
     assert "accepted: True" in capsys.readouterr().out
 
 

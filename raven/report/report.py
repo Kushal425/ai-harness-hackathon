@@ -24,6 +24,7 @@ def write_report(
     gateway_stats: GatewayStats,
     trace_text: str | None = None,
     sbfl_results: list | None = None,
+    extra_markdown: str | None = None,
 ) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     report_path = run_dir / "report.md"
@@ -58,6 +59,9 @@ def write_report(
             f"- passes on the fix: {mark(repro.get('passes_after'))}",
             "",
         ]
+
+    if extra_markdown:
+        lines += [extra_markdown.rstrip(), ""]
 
     lines += [
         "## Evidence",
