@@ -181,16 +181,14 @@ def test_chat_reply_falls_back_to_models_own_words_not_a_blind_second_call(repo)
     repositories." The fix surfaces the model's own (tool-aware-context)
     reply instead of a second blind call.
 
-    The executor retries with a format reminder up to 3 consecutive parse
-    failures before aborting (by design) -- a model that keeps replying in
-    prose despite the reminder burns all 3 attempts. Script the same reply
-    3 times to simulate that, and confirm the FINAL raw reply is what's
-    shown, not a 4th, blind fallback call past the scripted responses."""
+    In chat (answer mode) a plain-prose reply with no action block is taken
+    as the answer on the spot -- no format-reminder re-asks, and no blind
+    fallback call past the scripted responses."""
     prose_reply = "Yes, in chat mode I can read and search this repository using read-only tools."
     session = _session(repo, [prose_reply] * 3)
     reply = session.handle_input("can you access my repo?")
     assert reply == prose_reply
-    assert session.gateway.stats.calls == 3  # aborted after 3, no blind 4th call
+    assert session.gateway.stats.calls == 1
 
 
 def test_memory_command_shows_digest_summary(repo):

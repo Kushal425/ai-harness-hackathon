@@ -16,6 +16,18 @@ def _scrubbed_env() -> dict:
     return {k: v for k, v in os.environ.items() if not any(m in k.upper() for m in SECRET_MARKERS)}
 
 
+def target_code_env(repo_root=None) -> dict:
+    """Environment for ANY subprocess that runs the target repo's code
+    (tests, tracer, coverage): secrets scrubbed (plan §8.5 -- the repo's
+    tests must never see AI_API_KEY), no bytecode written into the repo,
+    and the repo importable."""
+    env = _scrubbed_env()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if repo_root is not None:
+        env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    return env
+
+
 def run(ctx: RunContext, cmd: str, timeout: int = 30) -> ToolResult:
     try:
         proc = subprocess.run(

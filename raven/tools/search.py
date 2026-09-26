@@ -6,20 +6,15 @@ import fnmatch
 import re
 from pathlib import Path
 
+from raven.repo.files import SKIP_DIRS, list_repo_files  # noqa: F401  (SKIP_DIRS re-exported)
 from raven.tools.registry import RunContext, Tool, ToolResult
-
-SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".raven"}
 
 
 def _iter_files(repo_root: Path, glob: str | None):
-    for path in repo_root.rglob("*"):
-        if not path.is_file():
+    for rel in list_repo_files(repo_root):
+        if glob and not fnmatch.fnmatch(rel, glob):
             continue
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        if glob and not fnmatch.fnmatch(str(path.relative_to(repo_root)), glob):
-            continue
-        yield path
+        yield repo_root / rel
 
 
 def search(ctx: RunContext, pattern: str, glob: str | None = None, regex: bool = False) -> ToolResult:

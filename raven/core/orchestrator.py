@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from raven.agents.explorer import explore, should_delegate_to_explorer
 from raven.agents.reviewer import review_diff
 from raven.core.executor import ExecutorResult, run_single_loop
-from raven.core.judge import Verdict, judge
+from raven.core.judge import Verdict, expects_changes, judge
 from raven.core.planner import Plan, make_plan
 from raven.core.understand import Understanding, understand
 from raven.learn.extract_lessons import extract_and_store_lesson
@@ -39,6 +39,7 @@ from raven.memory.lessons import format_lesson, retrieve_combined
 from raven.memory.project import record_fact
 from raven.recovery.checkpoints import CheckpointManager
 from raven.repo.digest import build_digest
+from raven.repo.files import exclude_raven_dir
 from raven.report.report import write_report
 from raven.tools.registry import RunContext, build_default_registry
 from raven.verify.behavior_diff import diff_zero_arg_functions, find_collateral_changes
@@ -149,6 +150,8 @@ def run_orchestrator(
         except Exception:
             pass
 
+    exclude_raven_dir(repo_root)
+
     # DIGEST
     digest = build_digest(repo_root)
     digest_summary = digest.summary()
@@ -190,7 +193,7 @@ def run_orchestrator(
         post = capture_post_fix(registry, ctx, digest, understanding)
         collateral = _collateral_changes(repo_root, checkpoints, understanding)
         evidence = compute_evidence(pre, post, executor_result.completed, collateral_changes=collateral)
-        verdict = judge(executor_result, evidence)
+        verdict = judge(executor_result, evidence, expects_changes(goal, understanding))
         _emit("verify_done", {"evidence": evidence})
 
     # Cross-task lesson extraction (plan §12.2) — best-effort, must never
@@ -272,7 +275,7 @@ def _run_plan_execute(
         post = capture_post_fix(registry, ctx, digest, understanding)
         collateral = _collateral_changes(repo_root, checkpoints, understanding) if repo_root else []
         evidence = compute_evidence(pre_evidence, post, executor_result.completed, collateral_changes=collateral)
-        verdict = judge(executor_result, evidence)
+        verdict = judge(executor_result, evidence, expects_changes(goal, understanding))
 
         if verdict.accepted or replans_left <= 0:
             break

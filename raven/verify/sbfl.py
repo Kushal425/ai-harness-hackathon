@@ -18,6 +18,8 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+from raven.tools.shell import target_code_env
+
 _COVERAGE_SCRIPT = r'''
 import sys, json, importlib.util, os
 
@@ -79,7 +81,7 @@ def run_sbfl(repo_root: Path, test_targets: list[str], top_n: int = 5, timeout: 
 
         proc = subprocess.run(
             [sys.executable, script_path, str(Path(repo_root).resolve()), json.dumps(test_targets)],
-            cwd=str(repo_root), capture_output=True, text=True, timeout=timeout,
+            cwd=str(repo_root), env=target_code_env(repo_root), capture_output=True, text=True, timeout=timeout,
         )
         data = json.loads(proc.stdout.strip().splitlines()[-1])
     except Exception:

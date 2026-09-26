@@ -62,3 +62,19 @@ def test_judge_rejects_weak_evidence():
     evidence = {"evidence_score": 0.1, "no_new_failures": False, "pre_failed": ["x"], "post_failed": ["x", "y"]}
     verdict = judge(result, evidence)
     assert not verdict.accepted
+
+
+def test_judge_rejects_done_with_no_changes_when_changes_expected():
+    result = ExecutorResult(completed=True, summary="done", iterations=1, tool_calls=0, touched_paths=[])
+    evidence = {"evidence_score": 0.5, "no_new_failures": True, "pre_failed": ["x"], "post_failed": ["x"]}
+    assert not judge(result, evidence, expects_changes=True).accepted
+    assert judge(result, evidence, expects_changes=False).accepted  # e.g. a question
+
+
+def test_expects_changes_heuristic():
+    from raven.core.judge import expects_changes
+
+    assert expects_changes("fix the failing average() test")
+    assert expects_changes("Add a multiply() function to calc/arithmetic.py")
+    assert not expects_changes("Without changing any code, explain why test_average fails.")
+    assert not expects_changes("why does average() return the wrong value?")

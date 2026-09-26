@@ -4,12 +4,10 @@ step 1: baseline)."""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from raven.tools.registry import RunContext, ToolRegistry
-
-FAILED_RE = re.compile(r"^FAILED (\S+)", re.MULTILINE)
+from raven.tools.test_runner import FAILURE_RE
 
 
 @dataclass
@@ -24,5 +22,6 @@ class TestSummary:
 def run_test_summary(registry: ToolRegistry, ctx: RunContext, target: str | None = None) -> TestSummary:
     args = {"target": target} if target else {}
     result = registry.dispatch("tests", args, ctx)
-    failed = FAILED_RE.findall(result.output)
+    data = result.data or {}
+    failed = data["failed"] if "failed" in data else FAILURE_RE.findall(result.output)
     return TestSummary(passed=result.ok, output=result.output, failed=failed)

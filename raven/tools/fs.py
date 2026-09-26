@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from raven.repo.files import is_secret_path
 from raven.tools.registry import RunContext, Tool, ToolResult
 
 
@@ -19,6 +20,9 @@ def read(ctx: RunContext, path: str, start: int | None = None, end: int | None =
     resolved = _resolve_in_repo(ctx, path)
     if resolved is None:
         return ToolResult(ok=False, output=f"path escapes repo root: {path}")
+    if is_secret_path(path):
+        # anything read is sent to the model provider
+        return ToolResult(ok=False, output=f"refusing to read a secrets file: {path}")
     if not resolved.exists():
         return ToolResult(ok=False, output=f"no such file: {path}")
     if not resolved.is_file():

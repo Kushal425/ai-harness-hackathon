@@ -26,7 +26,7 @@ run:
 		echo "Error: environment not set up. Run: make setup"; \
 		exit 1; \
 	fi
-	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python -m raven $(ARGS)
+	@$(BIN)/python -m raven $(ARGS)
 
 test:
 	@if [ ! -x "$(BIN)/python" ]; then \
@@ -36,10 +36,10 @@ test:
 	$(BIN)/python -m pytest -q tests
 
 eval:
-	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python evals/run_evals.py $(ARGS)
+	@$(BIN)/python evals/run_evals.py $(ARGS)
 
 evolve:
-	AI_API_KEY="$(AI_API_KEY)" $(BIN)/python -m raven.learn.evolve $(ARGS)
+	@$(BIN)/python -m raven.learn.evolve $(ARGS)
 
 clean:
 	rm -rf $(VENV) .raven build dist *.egg-info evals/work

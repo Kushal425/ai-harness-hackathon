@@ -99,6 +99,15 @@ def run_single_loop(
                 action = parse_action(completion.text)
                 consecutive_parse_failures = 0
             except ActionParseError as exc:
+                if answer_mode and completion.text.strip() and not any(
+                    marker in completion.text for marker in ("```", '"tool"')
+                ):  # a broken tool call is not an answer -- re-ask instead
+                    # Chat: a plain-prose reply IS the answer. Re-asking for an
+                    # action block just burns calls to get the same words back.
+                    return ExecutorResult(
+                        completed=True, summary=completion.text.strip(), iterations=turn,
+                        tool_calls=tool_calls, last_raw_text=last_raw_text,
+                    )
                 consecutive_parse_failures += 1
                 history.append(HistoryEntry(turn=turn, role="result", text=f"[parse error] {exc}\n{FORMAT_REMINDER}"))
                 if consecutive_parse_failures >= 3:

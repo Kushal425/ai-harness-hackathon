@@ -9,10 +9,9 @@ loop body so that file stays readable."""
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 
-FAILED_RE = re.compile(r"^FAILED (\S+)", re.MULTILINE)
+from raven.tools.test_runner import FAILURE_RE
 
 
 def fingerprint_action(tool: str, args: dict) -> str:
@@ -22,7 +21,7 @@ def fingerprint_action(tool: str, args: dict) -> str:
 def failure_signature_of(output: str) -> str:
     """A stable signature for a test-run result, so repeated identical
     failures can be detected across edit attempts."""
-    failed = sorted(FAILED_RE.findall(output))
+    failed = sorted(FAILURE_RE.findall(output))
     return ",".join(failed) if failed else output.strip()[:200]
 
 

@@ -27,6 +27,7 @@ from raven.llm.protocol import Message
 from raven.prompts import get_prompt
 from raven.recovery.checkpoints import CheckpointManager
 from raven.repo.digest import build_digest
+from raven.repo.files import exclude_raven_dir
 from raven.tools.registry import RunContext, build_default_registry
 
 # Text lives in prompts/base.yaml (plan §12.3).
@@ -88,6 +89,7 @@ class SessionManager:
         self.config = config
         self.gateway = gateway
         self.state = SessionState(repo_root=Path(repo_root).resolve())
+        exclude_raven_dir(self.state.repo_root)
         self.history: list[Message] = [Message(role="system", content=CHAT_SYSTEM_PROMPT)]
         # None for every non-interactive caller (plain REPL, autonomous CLI,
         # eval harness) — only the TUI supplies a real approval prompt.
@@ -301,12 +303,20 @@ class SessionManager:
             return note + self._run_autonomous(text)
         return self._chat_reply(text)
 
+    def _repo_context(self) -> str:
+        root = self.state.repo_root
+        try:
+            digest = build_digest(root).summary()
+        except Exception:
+            digest = "(digest unavailable)"
+        return f"repository: {root.name}  ({root})\n{digest}"
+
     def _chat_reply(self, text: str) -> str:
         try:
             registry = build_default_registry()
             ctx = RunContext(repo_root=self.state.repo_root, mode="chat")
             checkpoints = CheckpointManager(self.state.repo_root)
-            digest_summary = build_digest(self.state.repo_root).summary()
+            digest_summary = self._repo_context()
             result = run_single_loop(
                 self.gateway, registry, ctx, checkpoints, goal=text,
                 digest_summary=digest_summary, max_iterations=6, answer_mode=True,
@@ -324,8 +334,11 @@ class SessionManager:
             pass  # fall through to a plain reply — chat must never hard-fail
 
         self.history.append(Message(role="user", content=text))
+        # The fallback still knows which repo it's in -- without this, a
+        # question like "what is this repo about?" gets "which repo?".
+        grounding = Message(role="system", content=f"# Repository digest\n{self._repo_context()}")
         try:
-            completion = self.gateway.complete(self.history)
+            completion = self.gateway.complete([self.history[0], grounding] + self.history[1:])
         except Exception as exc:
             return f"[error] {exc}"
         self.history.append(Message(role="assistant", content=completion.text))

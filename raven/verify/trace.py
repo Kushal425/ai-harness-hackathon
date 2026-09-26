@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from raven.tools.shell import target_code_env
+
 _TRACER_SCRIPT = r'''
 import sys, json, importlib.util, traceback
 
@@ -61,7 +63,7 @@ def trace_test(repo_root: Path, test_target: str, timeout: int = 30) -> str:
 
         proc = subprocess.run(
             [sys.executable, script_path, test_target, str(Path(repo_root).resolve())],
-            cwd=str(repo_root), capture_output=True, text=True, timeout=timeout,
+            cwd=str(repo_root), env=target_code_env(repo_root), capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return "(trace timed out)"

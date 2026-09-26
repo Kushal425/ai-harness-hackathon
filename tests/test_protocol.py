@@ -40,3 +40,37 @@ def test_raises_on_malformed_json():
 def test_defaults_args_to_empty_dict():
     action = parse_action('```action\n{"tool": "done"}\n```')
     assert action.args == {}
+
+
+def test_parses_bare_json_tool_call_without_fence():
+    # gpt-oss-20b in the wild: the action with no ```action fence at all
+    action = parse_action('{"tool":"done","args":{"summary":"A MERN app."}}')
+    assert action.tool == "done" and action.args["summary"] == "A MERN app."
+
+
+def test_parses_tool_call_in_json_fence_and_after_prose():
+    assert parse_action('```json\n{"tool": "read", "args": {"path": "a.py"},}\n```').tool == "read"
+    assert parse_action('Let me check.\n{"tool": "search", "args": {"pattern": "x {"}}').args == {"pattern": "x {"}
+
+
+def test_plain_prose_and_non_tool_json_still_rejected():
+    for text in ("Hello there.", 'config is {"a": 1}'):
+        with pytest.raises(ActionParseError):
+            parse_action(text)
+
+
+def test_chat_never_shows_a_broken_tool_call_as_the_answer(tmp_path):
+    from raven.core.executor import run_single_loop
+    from raven.llm.fake import FakeClient
+    from raven.llm.gateway import LLMGateway
+    from raven.recovery.checkpoints import CheckpointManager
+    from raven.tools.registry import RunContext, build_default_registry
+
+    truncated = '{"tool":"done","args":{"summary":"cut off'
+    fixed = '{"tool":"done","args":{"summary":"the real answer"}}'
+    result = run_single_loop(
+        LLMGateway(FakeClient([truncated, fixed])), build_default_registry(),
+        RunContext(repo_root=tmp_path, mode="chat"), CheckpointManager(tmp_path),
+        goal="what is this?", answer_mode=True,
+    )
+    assert result.summary == "the real answer"

@@ -6,15 +6,14 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from raven.repo.files import list_repo_files
 from raven.tools.registry import RunContext, Tool, ToolResult
-from raven.tools.search import SKIP_DIRS
 
 
 def _iter_py_files(repo_root: Path):
-    for path in repo_root.rglob("*.py"):
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        yield path
+    for rel in list_repo_files(repo_root):
+        if rel.endswith(".py"):
+            yield repo_root / rel
 
 
 def _defs_in_file(path: Path) -> list[tuple[str, str, int, int]]:
