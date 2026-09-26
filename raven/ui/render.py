@@ -10,6 +10,7 @@ for the same "degrade never crash" pattern used throughout this codebase)."""
 
 from __future__ import annotations
 
+from raven.core.judge import outcome_label
 from raven.ui import theme
 from raven.ui.status import glyph_for_tool_status
 
@@ -101,7 +102,7 @@ def render_verification(evidence: dict | None):
 def render_result_block(result) -> str:
     """The final boxed summary text (caller wraps in a rich.Panel for the
     TUI, or prints between ===== markers for the plain/piped path)."""
-    status = "RESOLVED" if result.accepted else "UNRESOLVED"
+    status = outcome_label(result.accepted, getattr(result, "verified", True))
     files_changed = len(result.checkpoints.touched_paths) if result.checkpoints else 0
     evidence_score = (result.evidence or {}).get("evidence_score")
     score_line = f"{evidence_score:.2f}" if evidence_score is not None else "n/a"

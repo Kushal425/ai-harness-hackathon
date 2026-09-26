@@ -219,7 +219,7 @@ def test_model_and_config_commands(repo):
 def test_repo_command_switches_and_validates(repo, tmp_path):
     session = _session(repo, [])
     missing = session.handle_input(f"/repo {tmp_path / 'does-not-exist'}")
-    assert "no such path" in missing
+    assert "no such directory" in missing
 
     other = tmp_path / "other"
     other.mkdir()
@@ -234,3 +234,29 @@ def test_clear_resets_history(repo):
     reply = session.handle_input("/clear")
     assert "cleared" in reply
     assert len(session.history) == 1
+
+
+def test_repo_command_clones_a_git_url(tmp_path, monkeypatch):
+    import raven.session.manager as manager_mod
+
+    cloned = tmp_path / "cloned"
+    cloned.mkdir()
+    monkeypatch.setattr(manager_mod, "clone_repo", lambda url: cloned)
+    session = _session(Path("."), [])
+    assert "switched repo" in session.handle_input("/repo https://github.com/acme/calc.git")
+    assert session.state.repo_root == cloned
+
+
+def test_plain_repl_reads_a_multiline_paste_as_one_message(monkeypatch):
+    import os
+    import pty
+    import sys
+
+    from raven.ui.repl import read_message
+
+    master, slave = pty.openpty()
+    stdin = os.fdopen(slave, "r")
+    monkeypatch.setattr(sys, "stdin", stdin)
+    os.write(master, b"Title: average() is wrong\nSteps to reproduce:\naverage([2,4,6])\n")
+    message = read_message("> ")
+    assert message.splitlines() == ["Title: average() is wrong", "Steps to reproduce:", "average([2,4,6])"]

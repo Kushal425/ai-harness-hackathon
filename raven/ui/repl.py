@@ -8,17 +8,17 @@ bracketed lines (no color, no rich) — matches under TERM=dumb."""
 
 from __future__ import annotations
 
+import io
+import os
+import select
+import sys
 from pathlib import Path
 
 from raven.config import RavenConfig
 from raven.llm.gateway import LLMGateway
-from raven.llm.protocol import Message
+from raven.intake import ask_for_target_repo, is_harness_repo
 from raven.session.manager import SessionManager
 
-SYSTEM_PROMPT = (
-    "You are Raven, a conversational coding-agent harness. "
-    "Answer plainly; say so if asked to edit code outside of /plan or /auto."
-)
 
 BANNER = """\
 =========================================
@@ -56,13 +56,38 @@ def plain_event_printer(event: str, data: dict) -> None:
             print(f"[verify] evidence score {score:.2f}")
 
 
+def read_message(prompt: str, settle_s: float = 0.05) -> str:
+    """One message, even when it's a multi-line paste: after the first
+    line, whatever else arrives within `settle_s` (the rest of the paste)
+    is part of the same message. Plain input() would turn every pasted
+    line of an issue into a separate message."""
+    lines = [input(prompt)]
+    try:
+        fd = sys.stdin.fileno()
+        pending = b""
+        while select.select([fd], [], [], settle_s)[0]:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            pending += chunk
+        if pending:
+            lines.extend(pending.decode(errors="replace").splitlines())
+    except (OSError, ValueError, io.UnsupportedOperation):
+        pass
+    return "\n".join(lines)
+
+
 def run_repl(config: RavenConfig, gateway: LLMGateway, repo_root: Path | str = ".") -> int:
     print(BANNER.format(model=config.llm.model))
     session = SessionManager(config, gateway, Path(repo_root), on_event=plain_event_printer)
+    if is_harness_repo(session.state.repo_root):
+        answer = ask_for_target_repo(input, print)
+        if answer:
+            print(session.handle_input(f"/repo {answer}"))
 
     while True:
         try:
-            user_input = input(f"[{session.state.mode}] > ").strip()
+            user_input = read_message(f"[{session.state.mode}] > ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting.")
             return 0
@@ -77,22 +102,4 @@ def run_repl(config: RavenConfig, gateway: LLMGateway, repo_root: Path | str = "
         if reply:
             print(f"Raven: {reply}")
 
-    return 0
-
-
-def run_piped(config: RavenConfig, gateway: LLMGateway, text: str) -> int:
-    """Non-interactive path: stdin was piped rather than a TTY. Sends the
-    whole input as one user message and prints the reply, then exits 0."""
-    history = [
-        Message(role="system", content=SYSTEM_PROMPT),
-        Message(role="user", content=text),
-    ]
-    try:
-        result = gateway.complete(history, stream=False)
-    except Exception as exc:
-        print(f"[error] {exc}")
-        return 1
-    print("===== RAVEN RESULT =====")
-    print(result.text)
-    print("===== END =====")
     return 0

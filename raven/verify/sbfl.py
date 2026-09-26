@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+from raven.repo.interpreter import target_python
 from raven.tools.shell import target_code_env
 
 _COVERAGE_SCRIPT = r'''
@@ -41,6 +41,7 @@ results = {}
 for i, target in enumerate(targets):
     _clear_repo_modules()
     path_str, func_name = target.split("::")
+    path_str = os.path.join(repo_root, path_str)  # absolute: same coverage on every Python version
     covered = set()
 
     def tracer(frame, event, arg, _covered=covered):
@@ -80,7 +81,7 @@ def run_sbfl(repo_root: Path, test_targets: list[str], top_n: int = 5, timeout: 
             script_path = f.name
 
         proc = subprocess.run(
-            [sys.executable, script_path, str(Path(repo_root).resolve()), json.dumps(test_targets)],
+            [target_python(repo_root), script_path, str(Path(repo_root).resolve()), json.dumps(test_targets)],
             cwd=str(repo_root), env=target_code_env(repo_root), capture_output=True, text=True, timeout=timeout,
         )
         data = json.loads(proc.stdout.strip().splitlines()[-1])

@@ -27,6 +27,15 @@ _QUESTION_RE = re.compile(
 class Verdict:
     accepted: bool
     reason: str
+    # False when accepted without any test evidence (no pytest suite): the
+    # patch is kept, but the outcome is labelled unverified, never plain RESOLVED
+    verified: bool = True
+
+
+def outcome_label(accepted: bool, verified: bool = True) -> str:
+    if not accepted:
+        return "UNRESOLVED"
+    return "RESOLVED" if verified else "RESOLVED (unverified)"
 
 
 def expects_changes(goal: str, understanding=None) -> bool:
@@ -53,10 +62,12 @@ def judge(executor_result: ExecutorResult, evidence: dict | None, expects_change
         return Verdict(False, "reproduction test still fails after the fix")
 
     if evidence is None:
-        return Verdict(True, "executor reported done; no test suite detected to gather evidence from")
+        return Verdict(True, "UNVERIFIED: model reported done; no test suite to gather evidence from",
+                       verified=False)
 
     if evidence.get("pre_failed") is None:
-        return Verdict(True, "executor reported done; " + evidence.get("note", "no evidence available"))
+        return Verdict(True, "UNVERIFIED: model reported done; " + evidence.get("note", "no evidence available"),
+                       verified=False)
 
     if evidence["evidence_score"] >= EVIDENCE_ACCEPT_THRESHOLD and evidence["no_new_failures"]:
         return Verdict(

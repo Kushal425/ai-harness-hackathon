@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
 
+from raven.repo.interpreter import target_python
 from raven.tools.registry import RunContext, Tool, ToolResult
 from raven.tools.shell import target_code_env
 
@@ -33,7 +33,8 @@ def run_tests(ctx: RunContext, target: str | None = None, timeout: int = 60) -> 
 
     # -p no:cacheprovider + PYTHONDONTWRITEBYTECODE: running the tests must
     # not leave .pytest_cache/ or __pycache__/ behind in the target repo
-    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    python = target_python(repo_root)  # the repo's own environment, not Raven's venv
+    cmd = [python, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
     if target:
         cmd.append(target)
 
@@ -54,7 +55,10 @@ def run_tests(ctx: RunContext, target: str | None = None, timeout: int = 60) -> 
         output=tail,
         # parsed from the FULL output -- the model only sees the tail, but
         # the verifier's pre/post comparison must see every failure
-        data={"returncode": proc.returncode, "passed": passed, "failed": FAILURE_RE.findall(output)},
+        data={
+            "returncode": proc.returncode, "passed": passed, "failed": FAILURE_RE.findall(output),
+            "python": python,
+        },
     )
 
 

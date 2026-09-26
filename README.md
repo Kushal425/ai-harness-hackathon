@@ -15,40 +15,51 @@ All three build phases are implemented:
 ## Quick start
 
 ```bash
-make setup
+git clone <this repo> && cd <this repo>
 export AI_API_KEY="<your-api-key>"
-make run
+make setup
+make run                                        # TUI; it asks which repository to work on
 ```
 
-In a real terminal this launches the TUI (rich panels, streaming, plan/activity view). Piped input or `TERM=dumb` falls back to a plain REPL automatically — the harness never requires a fancy terminal to work.
+Because `make run` starts inside Raven's own checkout, Raven never assumes the current directory is the target: it asks for a path (or a git URL, which it clones into `workspaces/`). To skip the question, name the repository up front, any one of:
 
-`make test` runs the full offline test suite (210 tests, no API key or network — everything is exercised against a scripted `FakeClient`).
+```bash
+make run ARGS="--repo /path/to/target-repo"
+export RAVEN_REPO=/path/to/target-repo          # then: make run
+```
+
+In a real terminal this launches the TUI (rich panels, live tool stream). `TERM=dumb` or a failing TUI falls back to a plain REPL automatically.
+
+`make test` runs the full offline test suite (230 tests; no API key or network — the model is a scripted `FakeClient`).
 
 ```bash
 make test               # offline unit + integration tests
-make eval                # eval harness against the toy_repo fixture — see Results below
+make eval               # eval harness against the toy_repo fixture — see Results below
 ```
+
+**Model.** `config.yaml` ships the model Raven was tested against end to end (`openai/gpt-oss-20b` on Groq's OpenAI-compatible endpoint). If the organisers prescribe another model or endpoint, set `RAVEN_MODEL` / `RAVEN_BASE_URL` — no code changes. The key is only ever read from `AI_API_KEY`; a scored (non-interactive) run without it stops with an error instead of quietly using the offline fake model.
 
 ## Supplying an issue
 
-Four ways in, matching plan §14's autonomous evaluation path:
+Every non-interactive path runs the same autonomous pipeline (understand → reproduce → fix → verify → report) and ends with a delimited `===== RAVEN RESULT =====` block:
 
 ```bash
-# 1. Flag
-raven --repo /path/to/repo --issue "average() returns the wrong value for [2,4,6]"
+# 1. Piped stdin
+echo "average() returns 3.0 for [2,4,6]; expected 4" | make run ARGS="--repo /path/to/repo"
 
-# 2. File
-raven --repo /path/to/repo --issue-file issue.txt
+# 2. Environment variables
+RAVEN_REPO=/path/to/repo RAVEN_ISSUE="average() is off by one" make run
 
-# 3. Piped stdin (non-interactive — prints a delimited result block and exits)
-echo "fix: off-by-one in average()" | make run
+# 3. Flags
+make run ARGS="--repo /path/to/repo --issue 'average() is off by one'"
+make run ARGS="--repo /path/to/repo --issue-file issue.txt"
 
-# 4. Pasted into the TUI/REPL chat — issue-like text (length, stack traces,
-#    "steps to reproduce", a GitHub issue URL) is auto-detected and switches
-#    the session straight into autonomous mode.
+# 4. Pasted into the TUI — issue-like text (long text, stack traces,
+#    "steps to reproduce", a GitHub issue URL) is auto-detected and run
+#    autonomously; afterwards the session returns to chat. /auto <task> forces it.
 ```
 
-`--strategy` overrides `config.yaml`'s `executor.strategy` (`single_loop` | `plan_execute` | `delegated`) for one run.
+A GitHub issue URL anywhere in the task is expanded with the issue's title and body (fetched by the harness; `GITHUB_TOKEN` is used if set). `--repo` also accepts a git URL, which is cloned. `--strategy` overrides `executor.strategy` (`single_loop` | `plan_execute` | `delegated`) for one run.
 
 ## Conversation layer
 
@@ -142,7 +153,7 @@ exception raised at line 13
 
 `evals/results/baseline.md`, produced by `python evals/run_evals.py` against `tests/fixtures/toy_repo` (a small package with 2 planted bugs) using a `FakeClient` scripted with the correct action sequence per task — this makes the number reproducible offline, but it measures "does the pipeline work end to end," not model quality (see below):
 
-**Resolved: 14/14 · avg tokens: 3405 · avg tool calls: 2.4**, split across `single_loop` (8 tasks), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
+**Resolved: 14/14 · avg tokens: 3439 · avg tool calls: 2.4**, split across `single_loop` (8 tasks), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
 
 ## Learning & evolution
 
@@ -157,29 +168,30 @@ Being precise about what's real here, because it's easy to overstate:
 
 **Mechanism-verified, not quality-verified — needs a live model:**
 - `raven/learn/evolve.py` (`make evolve`) implements the full reflective-evolution loop from plan §12.3: population, Pareto selection on (resolve rate, tokens), a real model call to diagnose failures and rewrite a prompt module, crossover, and a held-out gate that requires at least one more resolved task before promoting anything to `prompts.tuned.yaml`. Run offline (no `AI_API_KEY`), this correctly **never promotes a candidate** — the eval harness's tasks are scripted with a fixed, hardcoded tool-call sequence per task, so their outcome cannot change based on prompt text. That's not a bug; it's the held-out gate doing its job. A genuine tuning signal requires a live model and real budget.
-- `raven/learn/tune.py` (`make evolve` doesn't cover this, run directly: `python -m raven.learn.tune`) is the same story for numeric config knobs (successive halving over `half_life`/`max_replans`). It also surfaces a real, separate gap: `config.yaml`'s `context.half_life` / `recovery.stall_turns` etc. are declared but not currently read by `run_orchestrator` at call time — its Python-level defaults are used unless a caller passes explicit kwargs. `tune.py`'s sweep operates on those kwargs directly; wiring config.yaml through end-to-end is un-fixed and noted rather than silently glossed over.
+- `raven/learn/tune.py` (`make evolve` doesn't cover this, run directly: `python -m raven.learn.tune`) is the same story for numeric config knobs (successive halving over `half_life`/`max_replans`). Every `config.yaml` key is now read by the run (`RavenConfig.run_kwargs()`; `tests/test_budget.py` fails if a key is added that nothing reads), so a tuned `config.tuned.yaml` takes effect end to end.
 - The `delegated` and `plan_execute` executor strategies are both implemented and covered by tests/evals, but neither is the `config.yaml` default over `single_loop` — promoting either needs a real ablation against the prescribed model, which FakeClient-scripted evals cannot provide (see the `# PLAN-DECISION` comments in `raven/core/orchestrator.py`).
 
 ## Security
 
-- `AI_API_KEY` is read only from the environment — never from config or code.
-- Subprocess environments are scrubbed of anything matching `KEY`/`TOKEN`/`SECRET` before a shell tool runs.
-- File operations are jailed to the target repository; `create` never overwrites an existing file.
-- Editing an *existing* test file is denied in every mode (creating new test files — for test-writing/feature tasks — is allowed).
-- No network access, no `git push`, no history rewrites, no `rm -rf` — the shell tool only allows a fixed command allowlist, enforced in `raven/tools/policy.py`.
-- Every write is checkpointed before it happens; a failed or aborted run restores the tree exactly, verified by tests including a deliberately-wrong-edit chaos case.
+- `AI_API_KEY` is read only from the environment — never from config, code, or the Makefile, and never printed. It is scrubbed (with anything matching `KEY`/`TOKEN`/`SECRET`) from every subprocess that runs the target repo's code: tests, tracer, coverage, shell.
+- File tools are jailed to the target repository; `create` never overwrites; `.env` files and private keys are never read, searched, or listed (anything read is sent to the model provider).
+- Editing an *existing* test file is denied in every mode (creating new test files is allowed).
+- The `shell` tool runs **one** allowlisted command (`python <script>`, `python -m pytest`, `pytest`, `ls`, `cat`, `grep`, `echo`, `pwd`, `find`) **without a shell**: chaining, pipes, redirection and substitution are rejected, path arguments must stay inside the repo, `find -delete/-exec` are refused, and on timeout the whole process group is killed. `rm`, `curl`/`wget`, `pip`/`npm`, `git`, `sudo`, shells, … are denied in every mode, even with approval (`raven/tools/policy.py`).
+- Honest limit: this is not an OS sandbox for the target's *own* code — running its tests or a script in it executes that code with normal permissions, as any test runner does.
+- Every write is checkpointed first; a failed or aborted run restores the tree exactly. Raven's own state (`.raven/`) is excluded via `.git/info/exclude`, and running tests writes no `__pycache__`/`.pytest_cache`, so the final tree holds only the patch.
 
 ## Limitations
 
-- No live model was available in this development environment — every number above comes from `FakeClient`-scripted runs. The pipeline's *mechanics* are real and tested; its *quality against a real model* is unvalidated until run with one.
-- The eval fixture (`tests/fixtures/toy_repo`) is small and Python-only; language coverage for JS/TS/Go/Java/Rust in `raven/tools/symbols.py` and `raven/repo/digest.py` is minimal (extension-based language guess only).
-- `config.yaml`'s numeric knobs aren't fully wired through to the orchestrator (see Learning & evolution above).
-- Native tool calling is used for the executor loop (tool schemas sent with each request, tool calls converted to the same action path as the text protocol, automatic fallback to text if the endpoint rejects `tools`; `llm.tool_protocol: text` forces text). The one-shot calls (understanding, planner, lessons) still use text/JSON blocks only.
+- Eval numbers come from `FakeClient`-scripted runs (they prove the pipeline, not model quality). Live runs against gpt-oss-20b were used to find and fix real failures (native tool-call rejections, format quirks), but there is no live eval curve yet.
+- Test-based verification is pytest-only. In other stacks Raven still edits and reports, but a run can only be **RESOLVED (unverified)** — it is never reported as plain RESOLVED without test evidence.
+- Target tests run with the target repo's own interpreter (`$RAVEN_TARGET_PYTHON`, else its `.venv`/`venv`, else `python3` on PATH, else Raven's) — whichever can import pytest. If none has the target's dependencies, its tests error before and after alike and the evidence shows that.
+- Symbol indexing is Python-only (other languages: file tree + text search).
+- Context compaction, mutation testing and the disagreement check from the plan are not built; the corresponding config keys were removed rather than left as dead switches.
 - `delegated`/`plan_execute` are not the shipped default; see above.
 
 ## Submission checklist (plan §22)
 
-- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified with a real `git clone` of this repo into `/tmp`, from scratch, no `.venv`/`.raven` carried over — 167/167 tests, piped autonomous run both passed)
+- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified on a fresh copy of the tree with no `.venv`/`.raven`, on Python 3.9.6 and 3.12: `make setup` OK, `make test` 230/230; `make run` refuses to start a scored run without `AI_API_KEY` or without a target repository, with instructions; a piped issue runs the full pipeline and leaves only the patch)
 - [x] `AI_API_KEY` from environment only; `.env.example` has an empty value; no secrets in the repo
 - [x] Model/endpoint defined in config, overridable by env (`RAVEN_MODEL`, `RAVEN_BASE_URL`)
 - [x] Seed, temperature, frozen base config documented (`config.yaml`); `config.tuned.yaml`/`prompts.tuned.yaml` are supported override paths, not present by default (no genuine tuning run has been done — see above)

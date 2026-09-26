@@ -12,11 +12,13 @@ import sys
 from pathlib import Path
 
 from raven.config import load_config
+from raven.core.judge import outcome_label
 from raven.core.orchestrator import run_orchestrator
 from raven.llm.fake import FakeClient
 from raven.llm.gateway import LLMGateway
 from raven.llm.providers import OpenAICompatibleClient
-from raven.ui.repl import plain_event_printer, run_piped, run_repl
+from raven.intake import REPO_HELP, clone_repo, expand_issue_refs, is_harness_repo, looks_like_git_url, resolve_repo
+from raven.ui.repl import plain_event_printer, run_repl
 from raven.ui.tui import rich_available, run_tui, should_use_tui
 
 
@@ -36,7 +38,8 @@ def run_interactive(config, gateway, repo_root: Path) -> int:
 
 def build_gateway(config) -> LLMGateway:
     if not config.llm.api_key:
-        print("[warn] AI_API_KEY not set — running against FakeClient (offline demo mode).")
+        # interactive only (main() refuses scored runs without a key)
+        print("[warn] AI_API_KEY not set — OFFLINE DEMO MODE: replies come from a scripted fake model.")
         client = FakeClient()
     else:
         client = OpenAICompatibleClient(
@@ -54,7 +57,10 @@ def build_gateway(config) -> LLMGateway:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="raven", add_help=True)
-    parser.add_argument("--repo", default=".", help="repository to act on (default: cwd)")
+    parser.add_argument(
+        "--repo", default=None,
+        help="repository to work on: a path or a git URL to clone (default: $RAVEN_REPO, else cwd)",
+    )
     parser.add_argument("--issue", default=None, help="task/issue text; runs the autonomous pipeline")
     parser.add_argument("--issue-file", default=None, help="path to a file containing the issue text")
     parser.add_argument(
@@ -73,12 +79,13 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
     # This is the hackathon scoring path; it must never wait on rendering.
     result = run_orchestrator(
         gateway, repo_root, goal, mode="autonomous", strategy=strategy,
-        on_event=plain_event_printer, reproduce=config.flag("verify", "reproduce", True),
+        on_event=plain_event_printer, **config.run_kwargs(),
     )
 
     print("\n===== RAVEN RESULT =====")
     print(f"run_id:   {result.run_id}")
     print(f"accepted: {result.accepted}")
+    print(f"outcome:  {outcome_label(result.accepted, result.verified)}")
     print(f"reason:   {result.reason}")
     if result.evidence:
         repro = result.evidence.get("repro")
@@ -104,28 +111,45 @@ def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     args = _parse_args(argv)
     config = load_config()
-    gateway = build_gateway(config)
 
+    # Every non-interactive way of supplying the task goes through the SAME
+    # autonomous pipeline (plan §14.2): --issue, --issue-file, RAVEN_ISSUE,
+    # or piped stdin.
     issue_text = args.issue
     if args.issue_file:
         issue_text = Path(args.issue_file).read_text().strip()
+    if not issue_text and os.environ.get("RAVEN_ISSUE", "").strip():
+        issue_text = os.environ["RAVEN_ISSUE"].strip()
+    interactive = sys.stdin.isatty()
+    if not issue_text and not interactive:
+        issue_text = sys.stdin.read().strip()
+        interactive = not issue_text and sys.stdout.isatty()
 
-    # Resolve once, here, to an absolute path -- args.repo defaults to "."
-    # and every caller must agree on what that means (relative to the cwd
-    # this process actually started in). Resolving late/differently per
-    # code path is what caused the TUI banner to show the literal string
-    # "." instead of confirming which directory it's really targeting.
-    repo_root = Path(args.repo).resolve()
+    # Resolved once, to an absolute path: --repo, then RAVEN_REPO, then cwd.
+    repo_root = resolve_repo(args.repo)
+    if issue_text and looks_like_git_url(args.repo or ""):
+        repo_root = clone_repo(args.repo)
 
+    if issue_text or not interactive:
+        if not config.llm.api_key:
+            # a scored run must never quietly "succeed" against the fake model
+            print("[raven] AI_API_KEY is not set. Export it, then re-run:\n"
+                  "  export AI_API_KEY=\"<key>\"", file=sys.stderr)
+            return 2
+        if is_harness_repo(repo_root):
+            print("[raven] No target repository: Raven was started inside its own source tree.\n"
+                  + REPO_HELP, file=sys.stderr)
+            return 2
+        if not issue_text:
+            print("[raven] No task given. Pipe it in, or pass --issue / --issue-file / RAVEN_ISSUE.",
+                  file=sys.stderr)
+            return 2
+
+    gateway = build_gateway(config)
     try:
         if issue_text:
-            return run_autonomous(config, gateway, repo_root, issue_text, args.strategy)
-        if sys.stdin.isatty():
-            return run_interactive(config, gateway, repo_root)
-        piped_text = sys.stdin.read().strip()
-        if not piped_text:
-            return run_interactive(config, gateway, repo_root)
-        return run_piped(config, gateway, piped_text)
+            return run_autonomous(config, gateway, repo_root, expand_issue_refs(issue_text), args.strategy)
+        return run_interactive(config, gateway, repo_root)
     finally:
         gateway.close()
 

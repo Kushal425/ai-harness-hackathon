@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from raven.core.judge import Verdict
+from raven.core.judge import Verdict, outcome_label
 from raven.llm.gateway import GatewayStats
 
 
@@ -32,7 +32,7 @@ def write_report(
         f"# Raven run {run_id}",
         "",
         f"**Goal:** {goal}",
-        f"**Outcome:** {'RESOLVED' if verdict.accepted else 'UNRESOLVED'}",
+        f"**Outcome:** {outcome_label(verdict.accepted, verdict.verified)}",
         f"**Reason:** {verdict.reason}",
         "",
     ]
@@ -92,7 +92,7 @@ def write_report(
 
 def print_result_block(*, verdict: Verdict, executor_result, evidence: dict | None, gateway_stats: GatewayStats) -> None:
     print("===== RAVEN RESULT =====")
-    print(f"outcome: {'RESOLVED' if verdict.accepted else 'UNRESOLVED'}")
+    print(f"outcome: {outcome_label(verdict.accepted, verdict.verified)}")
     print(f"reason: {verdict.reason}")
     print(f"files changed: {', '.join(executor_result.touched_paths) or '(none)'}")
     if evidence is not None:

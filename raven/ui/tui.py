@@ -124,6 +124,8 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
     from rich.panel import Panel
 
     from raven.core import interrupt
+    from raven.core.judge import outcome_label
+    from raven.intake import ask_for_target_repo, is_harness_repo
     from raven.session.manager import SessionManager
     from raven.ui import theme
     from raven.ui.animations import play_startup, should_show_animation
@@ -204,6 +206,11 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
     if should_show_animation(sys.stdin.isatty() and sys.stdout.isatty(), os.environ.get("TERM"), "auto"):
         play_startup(console, config.llm.model)
 
+    if is_harness_repo(session.state.repo_root):
+        answer = ask_for_target_repo(lambda p: prompt_session.prompt(p), lambda t: safe_print(t, style=theme.WARNING))
+        if answer:
+            safe_print(session.handle_input(f"/repo {answer}"), style=theme.MUTED)
+    repo_root = session.state.repo_root
     safe_print(_top_bar(console.width, repo_root, config.llm.model))
     safe_print(
         f"[{theme.MUTED}]Ask about the code, paste an issue, or try[/] "
@@ -256,7 +263,7 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
         if result is not None and is_fresh_run:
             status_style = f"bold #0b0b0b on {theme.SUCCESS}" if result.accepted else f"bold #ffffff on {theme.ERROR}"
             safe_print(
-                f"[{status_style}] {'RESOLVED' if result.accepted else 'UNRESOLVED'} [/]"
+                f"[{status_style}] {outcome_label(result.accepted, result.verified)} [/]"
                 f"[{theme.MUTED}]  run {result.run_id} · "
                 f"tool calls {result.executor_result.tool_calls} · "
                 f"tokens {gateway.stats.total_tokens:,}[/]"

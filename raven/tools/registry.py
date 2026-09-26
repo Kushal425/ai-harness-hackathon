@@ -52,6 +52,19 @@ TOOL_ALIASES = {
 }
 
 
+def _denial_reason(tool_name: str, args: dict) -> str:
+    """Why a shell command was refused, so the model can correct course."""
+    if tool_name != "shell":
+        return ""
+    from raven.tools.policy import SHELL_ALLOWLIST, ShellCommandError, parse_shell_command
+
+    try:
+        first = parse_shell_command(str(args.get("cmd") or ""))[0]
+    except ShellCommandError as exc:
+        return f": {exc}"
+    return f": `{first}` is not allowed; allowed commands: {', '.join(sorted(SHELL_ALLOWLIST))}"
+
+
 def _function_schema(name: str, description: str, props: dict, required: list[str]) -> dict:
     return {
         "type": "function",
@@ -127,7 +140,7 @@ class ToolRegistry:
         if decision == PolicyDecision.DENY:
             return ToolResult(
                 ok=False,
-                output=f"denied by policy: tool={name} mode={ctx.mode} (see raven/tools/policy.py)",
+                output=f"denied by policy: tool={name} mode={ctx.mode}{_denial_reason(tool.name, args)}",
             )
 
         if tool.permission == "write" and ctx.checkpoints is not None:

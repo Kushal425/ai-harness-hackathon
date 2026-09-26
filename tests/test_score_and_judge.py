@@ -78,3 +78,13 @@ def test_expects_changes_heuristic():
     assert expects_changes("Add a multiply() function to calc/arithmetic.py")
     assert not expects_changes("Without changing any code, explain why test_average fails.")
     assert not expects_changes("why does average() return the wrong value?")
+
+
+def test_acceptance_without_test_evidence_is_labelled_unverified():
+    from raven.core.judge import outcome_label
+
+    result = ExecutorResult(completed=True, summary="done", iterations=1, tool_calls=1, touched_paths=["a.js"])
+    verdict = judge(result, evidence=None, expects_changes=True)
+    assert verdict.accepted and verdict.verified is False and verdict.reason.startswith("UNVERIFIED")
+    assert outcome_label(verdict.accepted, verdict.verified) == "RESOLVED (unverified)"
+    assert outcome_label(True) == "RESOLVED" and outcome_label(False) == "UNRESOLVED"

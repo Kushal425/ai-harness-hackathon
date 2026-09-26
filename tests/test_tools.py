@@ -168,3 +168,27 @@ def test_outline_is_jailed_to_the_repo(tmp_path):
     (tmp_path / "secret.py").write_text("def hidden():\n    pass\n")
     result = outline(RunContext(repo_root=tmp_path / "repo", mode="chat"), "../secret.py")
     assert not result.ok and "escapes" in result.output
+
+
+def test_shell_tool_cannot_be_used_to_escape_the_policy(tmp_path):
+    """Replays the review's live probe: these used to delete a file, reach
+    the network, and read outside the repo."""
+    from raven.tools.registry import RunContext, build_default_registry
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "victim.txt").write_text("keep")
+    (tmp_path / "outside.txt").write_text("secret")
+    registry, ctx = build_default_registry(), RunContext(repo_root=repo, mode="autonomous")
+
+    for cmd in ("cat victim.txt && rm victim.txt", "echo hi; curl -s https://example.com",
+                "find .. -name outside.txt", "cat ../outside.txt", "find . -delete",
+                "python -c \"print(1)\""):
+        result = registry.dispatch("shell", {"cmd": cmd}, ctx)
+        assert not result.ok, cmd
+    assert (repo / "victim.txt").read_text() == "keep"
+
+    # ordinary use still works
+    assert registry.dispatch("shell", {"cmd": "cat victim.txt"}, ctx).output == "keep"
+    assert registry.dispatch("shell", {"cmd": "grep -n \"keep|x\" victim.txt"}, ctx).ok is False  # no match, runs fine
+    assert registry.dispatch("shell", {"cmd": "grep -n keep victim.txt"}, ctx).ok

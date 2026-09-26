@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from raven.agents.debugger import run_debugger
+from raven.core.budget import Budget
 from raven.context.decay import HistoryEntry
 from raven.context.engine import ContextEngine, ContextState
 from raven.core import interrupt
@@ -50,6 +51,7 @@ def run_single_loop(
     reproduce: bool = False,
     run_lessons: list[str] | None = None,
     on_event: "Callable[[str, dict], None] | None" = None,
+    budget: "Budget | None" = None,
 ) -> ExecutorResult:
     ctx.checkpoints = checkpoints
 
@@ -85,6 +87,19 @@ def run_single_loop(
                     aborted_reason="interrupted by user (Ctrl-C) — tree restored",
                     last_raw_text=last_raw_text,
                 )
+
+            if budget is not None:
+                exhausted = budget.exhausted()
+                if exhausted:
+                    # stop, keep what was done: the verifier judges it (plan §13)
+                    return ExecutorResult(
+                        completed=False, summary="", iterations=turn, tool_calls=tool_calls,
+                        touched_paths=checkpoints.touched_paths,
+                        aborted_reason=f"budget exhausted: {exhausted}", last_raw_text=last_raw_text,
+                    )
+                nudge = budget.warning()
+                if nudge:
+                    history.append(HistoryEntry(turn=turn, role="result", text=f"[budget] {nudge}"))
 
             messages = context_engine.assemble(state, turn)
 

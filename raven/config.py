@@ -17,11 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 @dataclass
 class LLMConfig:
     provider: str = "openai_compatible"
-    base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4o-mini"
+    base_url: str = "https://api.groq.com/openai/v1"
+    model: str = "openai/gpt-oss-20b"
     temperature: float = 0
     seed: int = 7
-    context_window: int = 32000
     max_output_tokens: int = 2048
     tool_protocol: str = "auto"
     request_timeout_s: int = 60
@@ -30,13 +29,51 @@ class LLMConfig:
 
 
 @dataclass
+class RunSettings:
+    """Per-run knobs from config.yaml that the orchestrator/executor honour
+    (defaults = config.yaml's shipped values)."""
+    stall_turns: int = 4
+    identical_failures_for_debugger: int = 3
+    delegate_min_reads: int = 4
+    budget_tokens: int | None = None
+    budget_seconds: float | None = None
+    trace: bool = True
+    behavior_diff: bool = True
+    lessons: bool = True
+    in_run_reflection: bool = True
+    max_lessons_pinned: int = 3
+
+
+@dataclass
 class RavenConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     raw: dict = field(default_factory=dict)
 
-    def flag(self, section: str, key: str, default: bool) -> bool:
-        """A boolean switch from config.yaml, e.g. flag("verify", "reproduce", True)."""
-        return bool((self.raw.get(section) or {}).get(key, default))
+    def run_kwargs(self) -> dict:
+        """Keyword arguments for run_orchestrator, from config.yaml."""
+        sec = lambda name: self.raw.get(name) or {}  # noqa: E731
+        ex, ctx, rec, ver, learn, bud = (
+            sec("executor"), sec("context"), sec("recovery"), sec("verify"), sec("learning"), sec("budgets"),
+        )
+        return {
+            "max_iterations": int(ex.get("max_iterations", 30)),
+            "max_replans": int(ex.get("max_replans", 2)),
+            "half_life": int(ctx.get("half_life", 3)),
+            "reproduce": bool(ver.get("reproduce", True)),
+            "settings": RunSettings(
+                stall_turns=int(rec.get("stall_turns", 4)),
+                identical_failures_for_debugger=int(rec.get("identical_failures_for_debugger", 3)),
+                delegate_min_reads=int(ex.get("delegate_min_reads", 4)),
+                budget_tokens=bud.get("total_tokens"),
+                budget_seconds=bud.get("wall_clock_s"),
+                trace=bool(ver.get("trace", True)),
+                behavior_diff=bool(ver.get("behavior_diff", True)),
+                lessons=bool(learn.get("lessons", True)),
+                in_run_reflection=bool(learn.get("in_run_reflection", True)),
+                max_lessons_pinned=int(learn.get("max_lessons_pinned", 3)),
+            ),
+        }
+
 
 
 def _load_yaml(path: Path) -> dict:
@@ -63,7 +100,6 @@ def load_config(config_path: Path | None = None) -> RavenConfig:
         model=os.environ.get("RAVEN_MODEL") or llm_raw.get("model", LLMConfig.model),
         temperature=llm_raw.get("temperature", LLMConfig.temperature),
         seed=llm_raw.get("seed", LLMConfig.seed),
-        context_window=llm_raw.get("context_window", LLMConfig.context_window),
         max_output_tokens=llm_raw.get("max_output_tokens", LLMConfig.max_output_tokens),
         tool_protocol=llm_raw.get("tool_protocol", LLMConfig.tool_protocol),
         request_timeout_s=llm_raw.get("request_timeout_s", LLMConfig.request_timeout_s),

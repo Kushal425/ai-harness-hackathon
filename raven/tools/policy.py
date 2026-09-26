@@ -13,13 +13,50 @@ a human to ask.
 
 from __future__ import annotations
 
+import shlex
 from enum import Enum
+from pathlib import Path
 from typing import Callable
 
 from raven.recovery.checkpoints import is_scratch_path
 
 READ_TOOLS = {"read", "search", "symbols", "outline", "tests", "git_status", "git_diff"}
 SHELL_ALLOWLIST = {"python", "python3", "pytest", "ls", "cat", "grep", "echo", "pwd", "find"}
+# Denied in every mode, approval or not (plan §8.5: network, installs, rm -rf,
+# pushes). git goes through the git_status/git_diff tools only.
+SHELL_ALWAYS_DENY = {
+    "rm", "rmdir", "mv", "cp", "dd", "mkfs", "chmod", "chown", "sudo", "su", "kill", "killall",
+    "shutdown", "reboot", "curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "telnet",
+    "pip", "pip3", "npm", "npx", "yarn", "pnpm", "brew", "apt", "apt-get", "git", "sh", "bash", "zsh",
+}
+_OPERATOR_CHARS = set(";&|<>()")
+
+
+class ShellCommandError(ValueError):
+    pass
+
+
+def parse_shell_command(cmd: str) -> list[str]:
+    """argv for ONE command. Commands run without a shell (shell=False), and
+    chaining, pipes, redirection and substitution are rejected outright:
+    checking only the first word of a shell string let `cat x && rm x`
+    through."""
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError as exc:
+        raise ShellCommandError(f"could not parse command: {exc}") from exc
+    if not tokens:
+        raise ShellCommandError("empty command")
+    for tok in tokens:
+        if tok and set(tok) <= _OPERATOR_CHARS:
+            raise ShellCommandError(
+                f"one command at a time: `{tok}` (chaining, pipes, redirection, subshells) is not allowed"
+            )
+        if "`" in tok or "$(" in tok:
+            raise ShellCommandError("command substitution is not allowed")
+    return tokens
 
 ApproveFn = Callable[[str, dict], bool]
 
@@ -71,7 +108,12 @@ def check_policy(
 
     if tool_name == "shell":
         cmd = (args.get("cmd") or "").strip()
-        first_token = cmd.split(" ")[0] if cmd else ""
+        try:
+            first_token = Path(parse_shell_command(cmd)[0]).name
+        except ShellCommandError:
+            return PolicyDecision.DENY
+        if first_token in SHELL_ALWAYS_DENY:
+            return PolicyDecision.DENY
         if first_token in SHELL_ALLOWLIST:
             if mode in ("act", "autonomous"):
                 return PolicyDecision.ALLOW

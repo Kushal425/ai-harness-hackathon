@@ -1,62 +1,47 @@
-# Raven default configuration.
-# Overridden by config.tuned.yaml if present (shipped after prompt evolution, Phase 3).
+# Raven configuration. Every key below is read by the code (raven/config.py);
+# config.tuned.yaml, if present, is loaded instead of this file.
+#
+# Model / endpoint: the model Raven has been tested against end to end.
+# If the organisers prescribe a different model or endpoint, override it
+# without touching code:  export RAVEN_MODEL=...  RAVEN_BASE_URL=...
+# The API key is only ever read from the AI_API_KEY environment variable.
 llm:
   provider: openai_compatible
-  base_url: "https://api.openai.com/v1"   # overridden by RAVEN_BASE_URL or organiser endpoint
-  model: "gpt-4o-mini"                     # overridden by RAVEN_MODEL or the prescribed model
-  temperature: 0
-  seed: 7
-  context_window: 32000
+  base_url: "https://api.groq.com/openai/v1"   # RAVEN_BASE_URL overrides
+  model: "openai/gpt-oss-20b"                  # RAVEN_MODEL overrides
+  temperature: 0          # reproducibility: deterministic decoding
+  seed: 7                 # reproducibility: sent to the endpoint, and seeds retry jitter
   max_output_tokens: 2048
-  tool_protocol: auto   # auto | native | text
+  tool_protocol: auto     # auto (native tool calls, text fallback) | text
   request_timeout_s: 60
   max_retries: 5
 
 executor:
   strategy: single_loop   # single_loop | plan_execute | delegated
-  max_replans: 2
-  delegate_min_reads: 4
-
-agents:
-  explorer: false
-  engineer: false
-  verifier: false
-  reviewer: false
-  debugger: false
+  max_iterations: 30      # model turns per executor loop (the budgets below cap the whole run)
+  max_replans: 2          # plan_execute / delegated only
+  delegate_min_reads: 4   # delegated only: when a plan step goes to the Explorer
 
 context:
-  compact_at: 0.6
-  half_life: 3
-  k_full: 2
-  min_keep: 60
+  half_life: 3            # turns before an old tool result starts shrinking
 
 recovery:
-  stall_turns: 4
-  identical_failures_for_debugger: 3
-  max_rollbacks: 2
+  stall_turns: 4                        # turns without progress before a nudge
+  identical_failures_for_debugger: 3    # same failing tests N times -> roll back + Debugger
 
 verify:
-  reproduce: true    # write + independently verify a failing repro test first (plan §11.2)
-  trace: false
-  behavior_diff: false
-  mutants: false
-  disagreement: false
-  escalate_below: 0.7
+  reproduce: true         # write + independently verify a failing repro test first (plan §11.2)
+  trace: true             # execution story + Ochiai fault localisation of the original failure
+  behavior_diff: true     # flag behaviour changes outside the intended target
 
 learning:
-  in_run_reflection: false
-  lessons: false
+  in_run_reflection: true
+  lessons: true           # retrieve + extract cross-task lessons (stored in the target repo's .raven/)
   max_lessons_pinned: 3
-  playbooks: false
 
-budgets:
-  total_tokens: 400000
+budgets:                  # whole run: every step, replan and sub-agent call
+  total_tokens: 400000    # nudge to converge at 80%, stop at 100%
   wall_clock_s: 1200
 
-policy:
-  mode_defaults:
-    autonomous: strict
-
 ui:
-  tui: auto   # auto | on | off (falls back to plain REPL)
-  stream: true
+  tui: auto   # auto | on | off (falls back to the plain REPL)

@@ -93,3 +93,7 @@ coverage.xml
 # Eval harness scratch space
 # =========================
 evals/work/
+# =========================
+# Repositories cloned by Raven (raven/intake.py)
+# =========================
+workspaces/

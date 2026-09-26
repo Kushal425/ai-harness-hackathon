@@ -9,18 +9,22 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
+from raven.repo.interpreter import target_python
 from raven.tools.shell import target_code_env
 
 _TRACER_SCRIPT = r'''
-import sys, json, importlib.util, traceback
+import sys, os, json, importlib.util, traceback
 
 target = sys.argv[1]  # "path/to/test_file.py::test_func"
 repo_root = sys.argv[2]
 path_str, func_name = target.split("::")
+# absolute, so frames' co_filename contain repo_root on every Python
+# version (3.9 keeps a relative path as given, which filtered out the
+# test's own frames)
+path_str = os.path.join(repo_root, path_str)
 sys.path.insert(0, repo_root)
 
 events = []
@@ -62,7 +66,7 @@ def trace_test(repo_root: Path, test_target: str, timeout: int = 30) -> str:
             script_path = f.name
 
         proc = subprocess.run(
-            [sys.executable, script_path, test_target, str(Path(repo_root).resolve())],
+            [target_python(repo_root), script_path, test_target, str(Path(repo_root).resolve())],
             cwd=str(repo_root), env=target_code_env(repo_root), capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:

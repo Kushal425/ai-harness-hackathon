@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from raven.core.judge import outcome_label
 from raven.core.json_utils import parse_json_block
 from raven.llm.protocol import Message
 from raven.memory.lessons import Lesson, add_lesson, repo_lessons_path
@@ -22,7 +23,7 @@ VALID_SCOPES = {"repo", "global"}
 def extract_and_store_lesson(gateway, repo_root: Path, goal: str, executor_result, verdict, evidence: dict | None) -> dict | None:
     outcome_text = (
         f"Goal: {goal}\n"
-        f"Outcome: {'RESOLVED' if verdict.accepted else 'UNRESOLVED'}\n"
+        f"Outcome: {outcome_label(verdict.accepted, getattr(verdict, 'verified', True))}\n"
         f"Reason: {verdict.reason}\n"
         f"Aborted reason: {executor_result.aborted_reason or '(none)'}\n"
         f"Evidence: {evidence}\n"

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from raven.config import RavenConfig
 from raven.core.executor import run_single_loop
+from raven.core.judge import outcome_label
 from raven.core.orchestrator import OrchestratorResult, run_orchestrator
 from raven.core.planner import Plan, make_plan
 from raven.core.understand import Understanding, understand
@@ -27,6 +28,7 @@ from raven.llm.protocol import Message
 from raven.prompts import get_prompt
 from raven.recovery.checkpoints import CheckpointManager
 from raven.repo.digest import build_digest
+from raven.intake import clone_repo, expand_issue_refs, looks_like_git_url
 from raven.repo.files import exclude_raven_dir
 from raven.tools.registry import RunContext, build_default_registry
 
@@ -163,7 +165,7 @@ class SessionManager:
             mode="act", strategy="plan_execute", checkpoints=checkpoints,
             approve_fn=self.approve_fn,
             understanding=self.state.understanding, plan=self.state.plan,
-            on_event=self.on_event, reproduce=self.config.flag("verify", "reproduce", True),
+            on_event=self.on_event, **self.config.run_kwargs(),
         )
         self.state.last_result = result
         self.state.mode = "act"
@@ -175,13 +177,14 @@ class SessionManager:
         return self._run_autonomous(arg)
 
     def _run_autonomous(self, goal: str) -> str:
+        goal = expand_issue_refs(goal)  # a pasted GitHub issue URL -> its title + body
         strategy = self.config.raw.get("executor", {}).get("strategy", "single_loop")
         checkpoints = CheckpointManager(self.state.repo_root)
         result = run_orchestrator(
             self.gateway, self.state.repo_root, goal,
             mode="autonomous", strategy=strategy, checkpoints=checkpoints,
             approve_fn=self.approve_fn,  # inert in autonomous mode — policy.py never asks there
-            on_event=self.on_event, reproduce=self.config.flag("verify", "reproduce", True),
+            on_event=self.on_event, **self.config.run_kwargs(),
         )
         self.state.goal = goal
         self.state.last_result = result
@@ -193,7 +196,7 @@ class SessionManager:
 
     def _format_result(self, result: OrchestratorResult) -> str:
         lines = [
-            f"run {result.run_id}: {'RESOLVED' if result.accepted else 'UNRESOLVED'}",
+            f"run {result.run_id}: {outcome_label(result.accepted, result.verified)}",
             f"reason: {result.reason}",
         ]
         if result.evidence:
@@ -282,10 +285,17 @@ class SessionManager:
     def _cmd_repo(self, arg: str) -> str:
         if not arg:
             return f"current repo: {self.state.repo_root}"
-        candidate = Path(arg).expanduser().resolve()
-        if not candidate.exists():
-            return f"no such path: {arg}"
+        if looks_like_git_url(arg):
+            try:
+                candidate = clone_repo(arg)
+            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                return f"could not clone {arg}: {exc}"
+        else:
+            candidate = Path(arg).expanduser().resolve()
+            if not candidate.is_dir():
+                return f"no such directory: {arg}"
         self.state.repo_root = candidate
+        exclude_raven_dir(candidate)
         return f"switched repo to {candidate}"
 
     def _cmd_chat(self, _arg: str) -> str:

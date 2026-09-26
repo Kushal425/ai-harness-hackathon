@@ -28,6 +28,8 @@ from dataclasses import dataclass
 
 from raven.agents.explorer import explore, should_delegate_to_explorer
 from raven.agents.reviewer import review_diff
+from raven.config import RunSettings
+from raven.core.budget import Budget
 from raven.core.executor import ExecutorResult, run_single_loop
 from raven.core.judge import Verdict, expects_changes, judge
 from raven.core.planner import Plan, make_plan
@@ -61,6 +63,7 @@ class OrchestratorResult:
     executor_result: ExecutorResult
     evidence: dict | None
     report_path: object
+    verified: bool = True  # False = accepted without test evidence
     checkpoints: CheckpointManager = None  # the CheckpointManager used this run,
     # exposed so a caller (SessionManager's /undo) can restore_to_clean() after
     # the fact even though the run itself already finished.
@@ -133,6 +136,7 @@ def run_orchestrator(
     plan: Plan | None = None,
     on_event=None,
     reproduce: bool = True,
+    settings: RunSettings | None = None,
 ) -> OrchestratorResult:
     """`understanding`/`plan`, if supplied, come from a prior `/plan` the user
     already reviewed (plan §3: Plan mode "waits for approval or edits") —
@@ -141,6 +145,12 @@ def run_orchestrator(
     first pass) calls make_plan() again, since the approved plan demonstrably
     didn't work."""
     run_id = _new_run_id()
+    settings = settings or RunSettings()
+    budget = Budget(gateway, settings.budget_tokens, settings.budget_seconds)
+    loop_kwargs = dict(  # shared by every executor loop in this run
+        max_iterations=max_iterations, half_life=half_life, stall_turns=settings.stall_turns,
+        identical_failures_for_debugger=settings.identical_failures_for_debugger, budget=budget,
+    )
     registry = build_default_registry()
     ctx = RunContext(repo_root=repo_root, mode=mode, approve_fn=approve_fn)
     checkpoints = checkpoints or CheckpointManager(repo_root)
@@ -164,8 +174,11 @@ def run_orchestrator(
     # Learning loop (plan §12): cross-task lessons retrieved once up front
     # and pinned for the whole run; in-run reflection (capped) accumulates
     # as steps fail and is re-pinned alongside them on every later call.
-    pinned_lessons = [format_lesson(l) for l in retrieve_combined(repo_root, goal, k=3)]
-    reflection = RunReflection()
+    pinned_lessons = (
+        [format_lesson(l) for l in retrieve_combined(repo_root, goal, k=settings.max_lessons_pinned)]
+        if settings.lessons else []
+    )
+    reflection = RunReflection() if settings.in_run_reflection else RunReflection(cap=0)
 
     # UNDERSTAND (plan_execute / delegated only) — skip if the caller already
     # has one (e.g. SessionManager's /plan computed and showed it already).
@@ -182,26 +195,26 @@ def run_orchestrator(
     _emit("verify_start", {"phase": "baseline"})
     pre = capture_pre_fix(registry, ctx, digest, understanding)
     # trace/SBFL localize the *original* failure — must run before any edit
-    trace_text, sbfl_results = _trace_and_localize(repo_root, pre)
+    trace_text, sbfl_results = _trace_and_localize(repo_root, pre) if settings.trace else (None, [])
 
     if strategy in ("plan_execute", "delegated"):
         executor_result, plan, verdict, evidence = _run_plan_execute(
             gateway, registry, ctx, checkpoints, goal, understanding, digest_summary,
-            max_replans, max_iterations, half_life, pre_evidence=pre, digest=digest, repo_root=repo_root,
-            delegate=(strategy == "delegated"), initial_plan=plan,
-            pinned_lessons=pinned_lessons, reflection=reflection, on_event=on_event,
-            reproduce=reproduce, wants_changes=wants_changes,
+            max_replans, loop_kwargs, pre_evidence=pre, digest=digest, repo_root=repo_root,
+            delegate=(strategy == "delegated"), delegate_min_reads=settings.delegate_min_reads,
+            initial_plan=plan, pinned_lessons=pinned_lessons, reflection=reflection, on_event=on_event,
+            reproduce=reproduce, wants_changes=wants_changes, behavior_diff=settings.behavior_diff,
         )
     else:
         executor_result = run_single_loop(
             gateway, registry, ctx, checkpoints, goal,
-            digest_summary=digest_summary, max_iterations=max_iterations, half_life=half_life,
-            run_lessons=pinned_lessons, on_event=on_event, reproduce=reproduce,
+            digest_summary=digest_summary, run_lessons=pinned_lessons, on_event=on_event,
+            reproduce=reproduce, **loop_kwargs,
         )
         if not executor_result.completed:
             reflection.maybe_reflect(gateway, executor_result.aborted_reason or "")
         post = capture_post_fix(registry, ctx, digest, understanding)
-        collateral = _collateral_changes(repo_root, checkpoints, understanding)
+        collateral = _collateral_changes(repo_root, checkpoints, understanding) if settings.behavior_diff else []
         repro = verify_repro(registry, ctx, checkpoints) if executor_result.completed else None
         evidence = compute_evidence(
             pre, post, executor_result.completed, collateral_changes=collateral, repro=repro,
@@ -212,7 +225,8 @@ def run_orchestrator(
     # Cross-task lesson extraction (plan §12.2) — best-effort, must never
     # affect the verdict already decided above.
     try:
-        extract_and_store_lesson(gateway, repo_root, goal, executor_result, verdict, evidence)
+        if settings.lessons:
+            extract_and_store_lesson(gateway, repo_root, goal, executor_result, verdict, evidence)
     except Exception:
         pass
 
@@ -225,7 +239,7 @@ def run_orchestrator(
     )
 
     return OrchestratorResult(
-        run_id=run_id, accepted=verdict.accepted, reason=verdict.reason,
+        run_id=run_id, accepted=verdict.accepted, reason=verdict.reason, verified=verdict.verified,
         understanding=understanding, plan=plan, executor_result=executor_result,
         evidence=evidence, report_path=report_path, checkpoints=checkpoints,
     )
@@ -233,10 +247,10 @@ def run_orchestrator(
 
 def _run_plan_execute(
     gateway, registry, ctx, checkpoints, goal, understanding, digest_summary,
-    max_replans, max_iterations, half_life, pre_evidence, digest, repo_root=None,
+    max_replans, loop_kwargs, pre_evidence, digest, repo_root=None,
     delegate: bool = False, delegate_min_reads: int = 4, initial_plan: Plan | None = None,
     pinned_lessons: list[str] | None = None, reflection: RunReflection | None = None,
-    on_event=None, reproduce: bool = False, wants_changes: bool = True,
+    on_event=None, reproduce: bool = False, wants_changes: bool = True, behavior_diff: bool = True,
 ):
     def _emit(event, data):
         if on_event is None:
@@ -277,9 +291,8 @@ def _run_plan_execute(
             executor_result = run_single_loop(
                 gateway, registry, ctx, checkpoints, step_goal,
                 digest_summary=digest_summary, plan_text=plan.as_text(),
-                max_iterations=max_iterations, half_life=half_life,
                 run_lessons=pinned_lessons + reflection.lessons, on_event=on_event,
-                reproduce=reproduce,
+                reproduce=reproduce, **loop_kwargs,
             )
             step.status = "done" if executor_result.completed else "failed"
             _emit("plan_step", {"id": step.id, "action": step.action, "status": step.status})
@@ -288,14 +301,16 @@ def _run_plan_execute(
                 break
 
         post = capture_post_fix(registry, ctx, digest, understanding)
-        collateral = _collateral_changes(repo_root, checkpoints, understanding) if repo_root else []
+        collateral = (
+            _collateral_changes(repo_root, checkpoints, understanding) if repo_root and behavior_diff else []
+        )
         repro = verify_repro(registry, ctx, checkpoints) if executor_result.completed else None
         evidence = compute_evidence(
             pre_evidence, post, executor_result.completed, collateral_changes=collateral, repro=repro,
         )
         verdict = judge(executor_result, evidence, wants_changes)
 
-        if verdict.accepted or replans_left <= 0:
+        if verdict.accepted or replans_left <= 0 or loop_kwargs["budget"].exhausted():
             break
         reflection.maybe_reflect(gateway, f"replanning: {verdict.reason}")
         replans_left -= 1
@@ -305,6 +320,7 @@ def _run_plan_execute(
         # Reviewer runs once per task, only on an accepted, non-trivial diff
         # (plan §7.3 cost control — review_diff itself skips trivial diffs).
         review_note = review_diff(gateway, repo_root, evidence)
-        verdict = Verdict(accepted=verdict.accepted, reason=f"{verdict.reason} | review: {review_note[:200]}")
+        verdict = Verdict(accepted=verdict.accepted, reason=f"{verdict.reason} | review: {review_note[:200]}",
+                          verified=verdict.verified)
 
     return executor_result, plan, verdict, evidence
