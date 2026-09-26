@@ -177,7 +177,7 @@ Being precise about what's real here, because it's easy to overstate:
 
 ## Submission checklist (plan §22)
 
-- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified via a fresh rsync'd checkout — see commit history for the actual clean-clone run)
+- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified with a real `git clone` of this repo into `/tmp`, from scratch, no `.venv`/`.raven` carried over — 167/167 tests, piped autonomous run both passed)
 - [x] `AI_API_KEY` from environment only; `.env.example` has an empty value; no secrets in the repo
 - [x] Model/endpoint defined in config, overridable by env (`RAVEN_MODEL`, `RAVEN_BASE_URL`)
 - [x] Seed, temperature, frozen base config documented (`config.yaml`); `config.tuned.yaml`/`prompts.tuned.yaml` are supported override paths, not present by default (no genuine tuning run has been done — see above)
