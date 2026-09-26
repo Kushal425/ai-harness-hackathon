@@ -22,6 +22,8 @@ def write_report(
     evidence: dict | None,
     verdict: Verdict,
     gateway_stats: GatewayStats,
+    trace_text: str | None = None,
+    sbfl_results: list | None = None,
 ) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     report_path = run_dir / "report.md"
@@ -52,8 +54,17 @@ def write_report(
         json.dumps(evidence, indent=2) if evidence is not None else "null",
         "```",
         "",
-        "## Files changed",
     ]
+
+    if trace_text:
+        lines += ["## Execution story", "```", trace_text, "```", ""]
+
+    if sbfl_results:
+        lines += ["## Suspicious locations (Ochiai)"]
+        lines += [f"- {score}  {location}" for location, score in sbfl_results]
+        lines += [""]
+
+    lines += ["## Files changed"]
     lines += [f"- {p}" for p in executor_result.touched_paths] or ["(none)"]
 
     lines += [

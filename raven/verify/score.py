@@ -1,6 +1,6 @@
-"""Evidence score in [0, 1] (plan §11 step 8). Phase-1 formula — simple and
-documented here, not the full Ochiai/SBFL/behavioral-diff machinery of
-later phases:
+"""Evidence score in [0, 1] (plan §11 step 8). Phase-1 base formula — simple
+and documented here, not the full Ochiai/SBFL/behavioral-diff machinery
+originally scoped for later phases:
 
   +0.5  repro_fixed:      strictly fewer failing tests post-fix than pre-fix
                            (not "the whole suite is green" — unrelated
@@ -9,6 +9,15 @@ later phases:
   +0.3  no_new_failures:  every post-fix failure already existed pre-fix
   +0.1  executor_completed: the model called done() rather than aborting
   +0.1  edit_compiled:    no edit was auto-reverted for a syntax error
+
+Phase 2 layers one optional penalty on top (plan §11 step 5), without
+touching the base formula above:
+
+  -0.1  collateral_changes: raven.verify.behavior_diff found a function
+                           other than the intended target whose output
+                           changed too (floor 0.0) — a soft signal, not a
+                           hard failure; this doesn't affect pass/fail
+                           without also affecting no_new_failures.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ def compute_evidence(
     post: TestSummary | None,
     executor_completed: bool,
     edit_compiled: bool = True,
+    collateral_changes: list[str] | None = None,
 ) -> dict:
     if pre is None or post is None:
         return {
@@ -45,10 +55,14 @@ def compute_evidence(
     if edit_compiled:
         score += 0.1
 
+    if collateral_changes:
+        score -= 0.1
+
     return {
-        "evidence_score": round(min(score, 1.0), 2),
+        "evidence_score": round(max(0.0, min(score, 1.0)), 2),
         "repro_fixed": repro_fixed,
         "no_new_failures": no_new_failures,
         "pre_failed": pre.failed,
         "post_failed": post.failed,
+        "collateral_changes": collateral_changes or [],
     }

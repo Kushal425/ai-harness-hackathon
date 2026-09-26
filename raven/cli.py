@@ -6,6 +6,7 @@ the REPL (interactive TTY) or the piped path (stdin/non-TTY)."""
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,21 @@ from raven.llm.fake import FakeClient
 from raven.llm.gateway import LLMGateway
 from raven.llm.providers import OpenAICompatibleClient
 from raven.ui.repl import run_piped, run_repl
+from raven.ui.tui import rich_available, run_tui, should_use_tui
+
+
+def run_interactive(config, gateway, repo_root: str) -> int:
+    """Picks the TUI or the plain REPL per config `ui.tui` (plan §5.2).
+    Any failure launching or running the TUI falls back to the plain REPL
+    rather than crashing — the harness must always work in a plain
+    terminal."""
+    ui_mode = config.raw.get("ui", {}).get("tui", "auto")
+    if should_use_tui(ui_mode, sys.stdin.isatty() and sys.stdout.isatty(), os.environ.get("TERM"), rich_available()):
+        try:
+            return run_tui(config, gateway, repo_root)
+        except Exception as exc:
+            print(f"[warn] TUI failed to start ({exc}); falling back to the plain REPL.")
+    return run_repl(config, gateway, repo_root)
 
 
 def build_gateway(config) -> LLMGateway:
@@ -41,7 +57,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--issue", default=None, help="task/issue text; runs the autonomous pipeline")
     parser.add_argument("--issue-file", default=None, help="path to a file containing the issue text")
     parser.add_argument(
-        "--strategy", default=None, choices=["single_loop", "plan_execute"],
+        "--strategy", default=None, choices=["single_loop", "plan_execute", "delegated"],
         help="executor strategy override (default: config.yaml's executor.strategy)",
     )
     return parser.parse_args(argv)
@@ -62,12 +78,14 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
         print(f"evidence: {result.evidence}")
     print(f"report:   {result.report_path}")
 
-    diff = subprocess.run(
-        ["git", "-C", str(repo_root), "diff", "--stat"], capture_output=True, text=True
-    )
-    if diff.returncode == 0 and diff.stdout.strip():
-        print("\nfiles changed:")
-        print(diff.stdout.strip())
+    from raven.tools.git_tool import is_repo_toplevel
+    if is_repo_toplevel(repo_root):
+        diff = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--stat"], capture_output=True, text=True
+        )
+        if diff.returncode == 0 and diff.stdout.strip():
+            print("\nfiles changed:")
+            print(diff.stdout.strip())
     print("===== END =====")
 
     return 0 if result.accepted else 1
@@ -87,10 +105,10 @@ def main(argv: list[str] | None = None) -> int:
         if issue_text:
             return run_autonomous(config, gateway, Path(args.repo).resolve(), issue_text, args.strategy)
         if sys.stdin.isatty():
-            return run_repl(config, gateway)
+            return run_interactive(config, gateway, args.repo)
         piped_text = sys.stdin.read().strip()
         if not piped_text:
-            return run_repl(config, gateway)
+            return run_interactive(config, gateway, args.repo)
         return run_piped(config, gateway, piped_text)
     finally:
         gateway.close()

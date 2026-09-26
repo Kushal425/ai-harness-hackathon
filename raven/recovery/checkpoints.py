@@ -57,5 +57,15 @@ class CheckpointManager:
     def touched_paths(self) -> list[str]:
         return [cp.path for cp in self._checkpoints]
 
+    def original_content(self, path: str) -> str | None:
+        """The pre-write snapshot for `path`, or None if it didn't exist
+        before this run (or was never touched). Used by
+        raven/verify/behavior_diff.py to diff pre/post function behavior
+        without re-reading from disk after the edit already landed."""
+        for cp in self._checkpoints:
+            if cp.path == path:
+                return cp.content
+        return None
+
     def has_changes(self) -> bool:
         return bool(self._checkpoints)

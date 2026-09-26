@@ -1,34 +1,39 @@
 """Plain REPL — the fallback conversation UI (plan §5.2). Must work with no
-TTY niceties: a rich/prompt_toolkit TUI comes in Phase 2, but the harness
-must always work in a plain terminal even if that layer fails or is absent."""
+TTY niceties: the TUI (raven/ui/tui.py) is the primary interface, but the
+harness must always work in a plain terminal even if that layer fails or is
+absent. This is a thin view over raven/session/manager.py's SessionManager —
+all mode/slash-command logic lives there exactly once, so behaviour is
+identical between this and the TUI."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from raven.config import RavenConfig
 from raven.llm.gateway import LLMGateway
 from raven.llm.protocol import Message
+from raven.session.manager import SessionManager
 
 SYSTEM_PROMPT = (
     "You are Raven, a conversational coding-agent harness. "
-    "You are currently running in a minimal chat-only mode: no repository "
-    "tools are wired up yet. Answer plainly and say so if asked to edit code."
+    "Answer plainly; say so if asked to edit code outside of /plan or /auto."
 )
 
 BANNER = """\
 =========================================
   Raven  ·  model: {model}
 =========================================
-Type a message and press Enter. Ctrl-C or /exit to quit.
+Type a message and press Enter, or /help for commands. Ctrl-C or /exit to quit.
 """
 
 
-def run_repl(config: RavenConfig, gateway: LLMGateway) -> int:
+def run_repl(config: RavenConfig, gateway: LLMGateway, repo_root: Path | str = ".") -> int:
     print(BANNER.format(model=config.llm.model))
-    history: list[Message] = [Message(role="system", content=SYSTEM_PROMPT)]
+    session = SessionManager(config, gateway, Path(repo_root))
 
     while True:
         try:
-            user_input = input("> ").strip()
+            user_input = input(f"[{session.state.mode}] > ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting.")
             return 0
@@ -39,19 +44,9 @@ def run_repl(config: RavenConfig, gateway: LLMGateway) -> int:
             print("Exiting.")
             return 0
 
-        history.append(Message(role="user", content=user_input))
-
-        print("Raven: ", end="", flush=True)
-        try:
-            result = gateway.complete(
-                history, stream=True, on_token=lambda tok: print(tok, end="", flush=True)
-            )
-            print()
-        except Exception as exc:
-            print(f"\n[error] {exc}")
-            continue
-
-        history.append(Message(role="assistant", content=result.text))
+        reply = session.handle_input(user_input)
+        if reply:
+            print(f"Raven: {reply}")
 
     return 0
 

@@ -1,0 +1,32 @@
+id: feature_reverse_words_delegated
+task_type: feature
+strategy: delegated
+goal: >
+  Add a reverse_words(text) function to calc/strings.py that reverses word
+  order, and add tests/test_reverse_words.py covering it.
+check:
+  test_target: "tests/test_reverse_words.py"
+scripted_responses:
+  - |
+    ```understanding
+    {"task_type": "feature", "summary": "add reverse_words() to calc/strings.py",
+     "entities": {"files": ["calc/strings.py"], "symbols": [], "errors": [], "commands": []},
+     "acceptance_criteria": ["a new test for reverse_words passes"], "verification_strategy": "new_tests",
+     "ambiguities": [], "risk": "low"}
+    ```
+  - |
+    ```plan
+    {"steps": [{"action": "add reverse_words() and a covering test", "tools": ["edit", "create"], "check": "test_reverse_words passes"}]}
+    ```
+  - |
+    ```action
+    {"tool": "edit", "args": {"path": "calc/strings.py", "search": "    return cleaned == cleaned\n", "replace": "    return cleaned == cleaned\n\n\ndef reverse_words(text):\n    return \" \".join(text.split()[::-1])\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "create", "args": {"path": "tests/test_reverse_words.py", "content": "from calc.strings import reverse_words\n\n\ndef test_reverse_words():\n    assert reverse_words(\"a b c\") == \"c b a\"\n"}}
+    ```
+  - |
+    ```action
+    {"tool": "done", "args": {"summary": "added reverse_words() and a covering test"}}
+    ```

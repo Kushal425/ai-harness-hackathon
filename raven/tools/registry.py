@@ -21,12 +21,15 @@ class ToolResult:
 @dataclass
 class RunContext:
     """Shared state passed to every tool call. `checkpoints` is set by the
-    executor (raven/recovery/checkpoints.py) before write tools run."""
+    executor (raven/recovery/checkpoints.py) before write tools run.
+    `approve_fn` is None for every non-interactive caller (autonomous CLI,
+    eval harness, plain chat) — only the TUI wires one up (plan §8.5)."""
 
     repo_root: Path
     mode: str = "act"  # chat | plan | act | autonomous
     checkpoints: Any = None
     run_dir: Path | None = None
+    approve_fn: Any = None
 
 
 @dataclass
@@ -74,7 +77,7 @@ class ToolRegistry:
         if tool is None:
             return ToolResult(ok=False, output=f"unknown tool: {name}")
 
-        decision = check_policy(ctx.mode, tool.name, tool.permission, args)
+        decision = check_policy(ctx.mode, tool.name, tool.permission, args, approve_fn=ctx.approve_fn)
         if decision == PolicyDecision.DENY:
             return ToolResult(
                 ok=False,
