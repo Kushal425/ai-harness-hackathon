@@ -80,11 +80,12 @@ def _locate(gateway, ledger, card, rmap: RepoMap, ranked: list[FunctionInfo]) ->
         if fn and all(fn is not f for _, f in out):
             out.append(({"file": fn.path, "symbol": fn.qualname,
                          "hypothesis": str(loc.get("hypothesis", ""))[:200]}, fn))
-    for fn in ranked:  # deterministic top-ups: never fewer than 2 hypotheses when the map has signal
-        if len(out) >= 3 or fn.score <= 0:
-            break
-        if all(fn is not f for _, f in out):
-            out.append(({"file": fn.path, "symbol": fn.qualname, "hypothesis": "ranked by the repo map"}, fn))
+    if not out:  # the model localized nothing usable: fall back to the map's top functions
+        for fn in ranked[:2]:
+            if fn.score > 0:
+                out.append(({"file": fn.path, "symbol": fn.qualname, "hypothesis": "ranked by the repo map"}, fn))
+    # Only the model's own picks otherwise: unrelated "top-ups" sent the probe
+    # and the candidates after functions the issue never mentions.
     return out[:3]
 
 
@@ -98,12 +99,26 @@ def _probe(gateway, ledger, card, rmap, fns, repo_root) -> tuple[Probe | None, P
                  for c in data.get("cases") or [] if isinstance(c, dict) and _valid_expr(c.get("expr"))][:4]
         if not cases:
             continue
+        relevant = {f.name for f in fns} | set(card.identifiers)
+        cases = [c for c in cases if _calls(c.expr) & relevant] or cases[:1]
         probe = Probe(setup=str(data.get("setup") or ""), cases=cases)
         run = run_probe(repo_root, probe)
         if not run.setup_error:
             return probe, run
         user += f"\n\nYOUR PREVIOUS PROBE FAILED TO IMPORT: {run.setup_error}\nFix the setup."
     return None, None
+
+
+def _calls(expr: str) -> set:
+    """Names of the functions/methods an expression calls."""
+    import ast
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return set()
+    return {n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", "")
+            for n in ast.walk(tree) if isinstance(n, ast.Call)}
 
 
 def _valid_expr(value) -> str | None:
@@ -123,7 +138,18 @@ def _valid_name(value) -> str | None:
     return name if name.isidentifier() else None
 
 
-def _evaluate(repo_root, cand: Candidate, probe, reproduced, rmap, baseline_failed, base_tests) -> tuple:
+def _improves(before: ProbeRun | None, after: ProbeRun) -> bool:
+    """More of the issue's expectations hold than on the original code, and
+    none that held before now fails. (Requiring ALL to hold let one wrong
+    model-written expectation reject every correct fix.)"""
+    if before is None:
+        return after.matched > 0
+    regressed = any(b.match and not a.match for b, a in zip(before.results, after.results))
+    return after.matched > before.matched and not regressed
+
+
+def _evaluate(repo_root, cand: Candidate, probe, reproduced, rmap, baseline_failed, base_tests,
+              before: ProbeRun | None = None) -> tuple:
     """(probe_run, new_failures, tests). Sets cand.status."""
     tests = sorted(set(base_tests) | set(related_tests(rmap, list(cand.files))))
     with applied(repo_root, cand):
@@ -136,11 +162,13 @@ def _evaluate(repo_root, cand: Candidate, probe, reproduced, rmap, baseline_fail
     elif new_fail:
         cand.status = "broke-tests"
         cand.notes.append("new failures: " + ", ".join(new_fail[:5]))
-    elif reproduced and run is not None and not run.all_expected_met:
+    elif reproduced and run is not None and not _improves(before, run):
         cand.status = "misses-issue"
         cand.notes.append("probe still wrong:\n" + describe(probe, run))
     else:
         cand.status = "alive"
+        if reproduced and run is not None and not run.all_expected_met:
+            cand.notes.append("partial: fixes some but not all expected cases")
     return run, new_fail, tests
 
 
@@ -199,7 +227,8 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
             if cand.status == "invalid":
                 _emit(on_event, "candidate", f"{cand.id} invalid: {cand.error}", id=cand.id, status="invalid")
                 continue
-            run, new_fail, tests = _evaluate(repo_root, cand, probe, reproduced, rmap, baseline_failed, base_tests)
+            run, new_fail, tests = _evaluate(repo_root, cand, probe, reproduced, rmap, baseline_failed, base_tests,
+                                             before)
             runs[cand.id] = run
             key = _score(cand, run, new_fail)
             if best_key is None or key > best_key:
@@ -237,6 +266,13 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     alive = [c for c in out.candidates if c.status == "alive"]
     if not alive:
         return out
+    # Prefer the survivors that satisfy the most of the issue's expectations.
+    top = max((runs[c.id].matched if runs.get(c.id) else 0) for c in alive)
+    for c in alive:
+        if (runs[c.id].matched if runs.get(c.id) else 0) < top:
+            c.status = "outscored"
+            c.notes.append(f"fixes fewer expected cases than the best ({top})")
+    alive = [c for c in alive if c.status == "alive"]
 
     # -- CRUX: where do the survivors actually disagree? --------------------
     setup = probe.setup if probe else ""

@@ -29,8 +29,11 @@ spec = json.loads(sys.stdin.read())
 root = spec["root"]
 sys.path[:0] = [root, root + "/src"]
 
+class _ProbeTimeout(BaseException):
+    pass
+
 def _alarm(*_):
-    raise TimeoutError("probe case timed out")
+    raise _ProbeTimeout()
 
 def _repr(v):
     r = repr(v)
@@ -57,12 +60,14 @@ for case in spec["cases"]:
     value, raised = None, None
     try:
         if use_alarm:
-            signal.alarm(2)
+            signal.alarm(3)
         with contextlib.redirect_stdout(io.StringIO()):
             if case.get("setup"):
                 exec(case["setup"], ns)
             value = eval(compile(case["expr"], "<probe>", "eval"), ns)
         res["outcome"] = "=> " + _repr(value)
+    except _ProbeTimeout:
+        res["outcome"] = "timeout"
     except SyntaxError as e:
         raised = e
         res["outcome"] = "invalid probe: " + str(e)[:120]

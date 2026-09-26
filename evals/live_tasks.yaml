@@ -1,0 +1,103 @@
+# Live benchmark: real model, no scripted replies. Each task runs on a fresh
+# copy of tests/fixtures/bugbench and is graded ONLY by its hidden test,
+# which Raven never sees (written in after the run). The visible suite in
+# the fixture passes on the buggy code, as real suites often do.
+- id: slugify_repeated_separators
+  issue: |
+    slugify() produces repeated dashes. slugify("Hello,  World!") returns "hello---world-" but I'd
+    expect "hello-world" -- runs of non-alphanumeric characters should become a single separator,
+    and there shouldn't be separators at the start or end.
+  hidden_test: |
+    from bench.text import slugify
+    def test_hidden():
+        assert slugify("Hello,  World!") == "hello-world"
+        assert slugify("  Already-slugged  ") == "already-slugged"
+        assert slugify("a_b", sep="_") == "a_b"
+        assert slugify("Hello") == "hello"
+
+- id: truncate_exceeds_width
+  issue: |
+    truncate() returns strings longer than the requested width. truncate("hello world", 8)
+    returns "hello wo..." (11 characters). The docstring says the result is at most `width`
+    characters, so it should be "hello..." -- the suffix has to fit inside the width.
+  hidden_test: |
+    from bench.text import truncate
+    def test_hidden():
+        assert truncate("hello world", 8) == "hello..."
+        assert len(truncate("abcdefghijklmnop", 10)) == 10
+        assert truncate("short", 10) == "short"
+        assert truncate("hello world", 8, suffix="!") == "hello w!"
+
+- id: clamp_upper_bound
+  issue: |
+    clamp(5, 0, 10) returns 0 instead of 5. Values inside the range should come back unchanged,
+    and clamp(15, 0, 10) should give 10.
+  hidden_test: |
+    from bench.numbers import clamp
+    def test_hidden():
+        assert clamp(5, 0, 10) == 5
+        assert clamp(15, 0, 10) == 10
+        assert clamp(-1, 0, 10) == 0
+        assert clamp(3, 3, 3) == 3
+
+- id: roman_subtractive
+  issue: |
+    roman_to_int("IV") returns 6, but IV is 4. Subtractive notation isn't handled:
+    roman_to_int("XIV") should be 14 and roman_to_int("MCMXCIV") should be 1994.
+  hidden_test: |
+    from bench.numbers import roman_to_int
+    def test_hidden():
+        assert roman_to_int("IV") == 4
+        assert roman_to_int("XIV") == 14
+        assert roman_to_int("MCMXCIV") == 1994
+        assert roman_to_int("XVI") == 16
+        assert roman_to_int("ix") == 9
+
+- id: dedupe_order
+  issue: |
+    dedupe() doesn't keep the original order. dedupe([3, 1, 3, 2, 1]) gives [1, 2, 3], but the
+    docstring promises the first occurrence of each item is kept: expected [3, 1, 2].
+  hidden_test: |
+    from bench.collections_ import dedupe
+    def test_hidden():
+        assert dedupe([3, 1, 3, 2, 1]) == [3, 1, 2]
+        assert dedupe(["b", "a", "b"]) == ["b", "a"]
+        assert dedupe([]) == []
+
+- id: merge_touching_intervals
+  issue: |
+    merge_intervals([[1, 2], [2, 3]]) returns [[1, 2], [2, 3]]. The docstring says intervals that
+    touch are merged, so this should be [[1, 3]].
+  hidden_test: |
+    from bench.collections_ import merge_intervals
+    def test_hidden():
+        assert merge_intervals([[1, 2], [2, 3]]) == [[1, 3]]
+        assert merge_intervals([[1, 3], [2, 5], [7, 8]]) == [[1, 5], [7, 8]]
+        assert merge_intervals([[5, 6], [1, 2]]) == [[1, 2], [5, 6]]
+        assert merge_intervals([]) == []
+
+- id: chunk_last_partial
+  issue: |
+    chunk([1, 2, 3, 4, 5], 2) returns [[1, 2], [3, 4]] -- the last partial chunk [5] is dropped.
+  hidden_test: |
+    from bench.collections_ import chunk
+    def test_hidden():
+        assert chunk([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
+        assert chunk([], 2) == []
+        assert chunk([1], 3) == [[1]]
+        assert chunk([1, 2, 3, 4], 2) == [[1, 2], [3, 4]]
+
+- id: parse_compound_duration
+  issue: |
+    parse_duration("1h30m") returns 3600 -- everything after the first unit is ignored. It should
+    return 5400. Compound durations like "2m15s" (135) should work too, and garbage such as
+    "5x" should still raise ValueError.
+  hidden_test: |
+    import pytest
+    from bench.timeparse import parse_duration
+    def test_hidden():
+        assert parse_duration("1h30m") == 5400
+        assert parse_duration("2m15s") == 135
+        assert parse_duration("90s") == 90
+        with pytest.raises(ValueError):
+            parse_duration("5x")

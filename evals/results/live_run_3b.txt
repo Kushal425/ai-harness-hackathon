@@ -1,0 +1,14 @@
+slugify_repeated_separators    crux         hidden=fail  raven=unresolved  calls=32 tokens=56853 511.3s  partial: best candidate c4 kept (misses-issue); agent fallback: budget exhausted: time bud
+slugify_repeated_separators    single_loop  hidden=fail  raven=unresolved  calls=21 tokens=44802 287.2s  budget exhausted: max_iterations reached without calling done
+truncate_exceeds_width         crux         hidden=PASS  raven=unresolved  calls=28 tokens=54571 409.7s  partial: best candidate c1 kept (misses-issue); agent fallback: budget exhausted: max_iter
+truncate_exceeds_width         single_loop  hidden=fail  raven=unresolved  calls=21 tokens=40678 292.3s  budget exhausted: max_iterations reached without calling done
+clamp_upper_bound              crux         hidden=PASS  raven=RESOLVED  calls=5 tokens=2543 88.6s  reproduction fixed; no new test failures; 3 candidates, 1 survived, 1 behaviour cluster(s)
+clamp_upper_bound              single_loop  hidden=fail  raven=unresolved  calls=21 tokens=42977 278.4s  budget exhausted: max_iterations reached without calling done
+roman_subtractive              crux         hidden=fail  raven=unresolved  calls=21 tokens=25509 499.5s  partial: best candidate c2 kept (misses-issue); agent fallback: budget exhausted: time bud
+roman_subtractive              single_loop  hidden=fail  raven=unresolved  calls=21 tokens=49488 450.6s  budget exhausted: max_iterations reached without calling done
+dedupe_order                   crux         hidden=PASS  raven=RESOLVED  calls=5 tokens=2726 91.2s  reproduction fixed; no new test failures; 3 candidates, 3 survived, 1 behaviour cluster(s)
+dedupe_order                   single_loop  hidden=fail  raven=unresolved  calls=21 tokens=41415 283.5s  budget exhausted: max_iterations reached without calling done
+merge_touching_intervals       crux         hidden=fail  raven=unresolved  calls=29 tokens=55819 497.8s  budget exhausted: max_iterations reached without calling done
+merge_touching_intervals       single_loop  hidden=PASS  raven=RESOLVED  calls=2 tokens=3215 34.4s  evidence score 0.5 meets threshold; no new test failures
+chunk_last_partial             crux         hidden=PASS  raven=unresolved  calls=29 tokens=63770 491.3s  partial: best candidate c1 kept (misses-issue); agent fallback: budget exhausted: max_iter
+chunk_last_partial             single_loop  hidden=fail  raven=unresolved  calls=4 tokens=6822 34.6s  model reported done but changed no files

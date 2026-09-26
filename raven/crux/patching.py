@@ -70,7 +70,9 @@ def apply_edit(text: str, edit: Edit) -> tuple[str | None, str]:
         return None, f"search text matches {count} places in {edit.path}; include more surrounding lines"
     offset = _find_normalized(text, edit.search)
     if offset is None:
-        return None, f"search text not found in {edit.path}"
+        offset = _find_similar(text, edit.search)
+    if offset is None:
+        return None, f"search text not found in {edit.path}" + _closest_hint(text, edit.search)
     lines = text.splitlines(keepends=True)
     running, start = 0, 0
     for i, line in enumerate(lines):
@@ -144,3 +146,30 @@ def _normalize_py(src: str) -> str:
                 and isinstance(getattr(body[0], "value", None), ast.Constant) and isinstance(body[0].value.value, str):
             node.body = body[1:] or [ast.Pass()]
     return ast.unparse(tree)
+
+
+def _find_similar(text: str, search: str, threshold: float = 0.9) -> int | None:
+    """Last resort for small models that copy code *almost* exactly: the
+    single most similar block with the same number of lines, if it is at
+    least `threshold` similar and clearly better than the runner-up."""
+    lines = text.splitlines(keepends=True)
+    n = len(search.splitlines()) or 1
+    target = " ".join(search.split())
+    scored = []
+    for i in range(len(lines) - n + 1):
+        window = " ".join("".join(lines[i:i + n]).split())
+        scored.append((difflib.SequenceMatcher(None, window, target).ratio(), i))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    best, i = scored[0]
+    if best < threshold or (len(scored) > 1 and scored[1][0] > best - 0.05):
+        return None
+    return sum(len(l) for l in lines[:i])
+
+
+def _closest_hint(text: str, search: str) -> str:
+    """Show the model the closest real lines, so its one repair can copy them."""
+    first = next((l.strip() for l in search.splitlines() if l.strip()), "")
+    matches = difflib.get_close_matches(first, [l.strip() for l in text.splitlines()], n=1, cutoff=0.5)
+    return f"; the closest existing line is: {matches[0]!r}" if matches else ""

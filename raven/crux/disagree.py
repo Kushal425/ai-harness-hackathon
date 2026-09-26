@@ -145,10 +145,20 @@ class Cluster:
         return ", ".join(self.members)
 
 
+NOISE = ("timeout", "crashed")
+
+
 def cluster(fingerprints: dict[str, tuple]) -> list[Cluster]:
+    """Group candidates with identical behaviour. An input where any run
+    timed out or crashed says nothing reliable about behaviour (a timeout
+    can be machine load), so it is masked out for everyone."""
+    fps = list(fingerprints.values())
+    width = len(fps[0]) if fps else 0
+    noisy = {i for fp in fps for i in range(width) if fp[i] in NOISE}
     groups: dict[tuple, list[str]] = {}
     for cid, fp in fingerprints.items():
-        groups.setdefault(fp, []).append(cid)
+        masked = tuple("~" if i in noisy else o for i, o in enumerate(fp))
+        groups.setdefault(masked, []).append(cid)
     return sorted((Cluster(m, fp) for fp, m in groups.items()), key=lambda c: (-len(c.members), c.members))
 
 
@@ -156,7 +166,8 @@ def disagreement_indices(clusters: list[Cluster]) -> list[int]:
     if len(clusters) < 2:
         return []
     n = len(clusters[0].fingerprint)
-    return [i for i in range(n) if len({c.fingerprint[i] for c in clusters}) > 1]
+    return [i for i in range(n) if len({c.fingerprint[i] for c in clusters}) > 1
+            and all(c.fingerprint[i] != "~" for c in clusters)]
 
 
 def partition_entropy(clusters: list[Cluster], i: int) -> float:

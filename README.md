@@ -198,6 +198,18 @@ exception raised at line 13
 
 **Resolved: 16/16 · avg tokens: 3312 · avg tool calls: 2.4**, split across `crux` (2 tasks), `single_loop` (8), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
 
+### Live benchmark (real model, no scripted replies)
+
+`evals/live_eval.py` runs `evals/live_tasks.yaml` — 8 realistic bugs in `tests/fixtures/bugbench`, whose visible tests pass on the buggy code — against any OpenAI-compatible endpoint, graded **only by hidden tests**. First run, local **Qwen2.5-Coder 3B** via Ollama on an 8 GB laptop (7 of 8 tasks completed; `evals/results/live_run_3b.txt`):
+
+| | Crux | agent loop (`single_loop`) |
+|---|---|---|
+| hidden-test passes | **4 / 7** | 1 / 7 |
+| wrong patches reported as RESOLVED | 0 | 0 |
+| cost when resolved | 5 calls · ~2.6k tokens · ~90 s | typically 21 calls · ~40k tokens · ~5 min |
+
+Two of Crux's passes (truncate, chunk) were correct fixes that it labelled *partial* after an unnecessary fallback; this run predates the timeout-masking fix, and closing that gap is the next tuning target. A 3B model is far weaker than the evaluator's Qwen/DeepSeek, so treat this as a floor.
+
 ## Learning & evolution
 
 Being precise about what's real here, because it's easy to overstate:

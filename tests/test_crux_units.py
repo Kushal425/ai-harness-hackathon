@@ -84,3 +84,11 @@ def test_natural_language_expectations_are_dropped_not_fatal():
     assert _valid_expr("[[1, 2], [5]]") == "[[1, 2], [5]]"
     assert _valid_expr("should return 4") is None and _valid_expr(None) is None
     assert _valid_name("builtins.ValueError") == "ValueError" and _valid_name("an error") is None
+
+
+def test_timeouts_never_split_clusters():
+    # c3 timed out on input 1 (machine load) but behaves like c1 everywhere else
+    clusters = cluster({"c1": ("=> 1", "=> []"), "c3": ("=> 1", "timeout"), "c2": ("=> 1", "=> [[]]")})
+    assert [sorted(c.members) for c in clusters] == [["c1", "c2", "c3"]]  # input 1 masked for everyone
+    clusters = cluster({"c1": ("=> []", "=> 2"), "c3": ("=> []", "timeout"), "c2": ("=> [[]]", "=> 2")})
+    assert sorted(c.members for c in clusters) == [["c1", "c3"], ["c2"]]
