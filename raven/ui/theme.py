@@ -8,12 +8,17 @@ support, so no separate low-color palette is needed."""
 from __future__ import annotations
 
 PRIMARY = "#a78bfa"     # bright violet -- the Raven accent
+ACCENT = "#e879f9"      # fuchsia -- glyphs, prompt arrow, highlights
+DEEP = "#7c3aed"        # deep violet -- badges and chips
+BORDER = "#6d28d9"      # panel borders
+BAR_BG = "#1e1033"      # background of the top/bottom bars
+BAR_FG = "#c4b5fd"      # text on the bars
 SECONDARY = "#7c6f9f"   # muted/soft purple
 TEXT = "#e5e5e5"        # light gray / near-white
 MUTED = "#6b7280"       # gray, for de-emphasized/secondary lines
-SUCCESS = "green"
-WARNING = "yellow"
-ERROR = "red"
+SUCCESS = "#86efac"     # soft green, only for pass/fail signals
+WARNING = "#fcd34d"
+ERROR = "#f87171"
 INFO = PRIMARY
 
 

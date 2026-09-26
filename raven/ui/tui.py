@@ -38,12 +38,60 @@ def should_use_tui(ui_mode: str, is_tty: bool, term: str | None, available: bool
     return bool(is_tty) and term != "dumb" and available
 
 
+def _top_bar(width: int, repo_root: Path, model: str):
+    """Full-width header: a RAVEN badge, then repo and model on a dark bar."""
+    from rich.text import Text
+
+    from raven.ui import theme
+
+    bar = Text()
+    bar.append(" ◆ RAVEN ", style=f"bold #ffffff on {theme.DEEP}")
+    bar.append("  repo ", style=f"{theme.SECONDARY} on {theme.BAR_BG}")
+    bar.append(repo_root.name or str(repo_root), style=f"bold {theme.BAR_FG} on {theme.BAR_BG}")
+    bar.append("   model ", style=f"{theme.SECONDARY} on {theme.BAR_BG}")
+    bar.append(model, style=f"bold {theme.BAR_FG} on {theme.BAR_BG}")
+    right = f"{repo_root}  "
+    gap = width - bar.cell_len - len(right)
+    if gap > 2:
+        bar.append(" " * gap + right, style=f"{theme.MUTED} on {theme.BAR_BG}")
+    else:
+        bar.append(" " * max(0, width - bar.cell_len), style=f"on {theme.BAR_BG}")
+    return bar
+
+
+def _reply_panel(reply: str, command: str | None = None):
+    """A Raven reply in a violet frame. Model replies render as Markdown;
+    slash-command output is pre-formatted (aligned columns, diffs), so it's
+    shown as-is -- Markdown would reflow its lines into one paragraph."""
+    from rich.panel import Panel
+    from rich.text import Text
+
+    from raven.ui import theme
+
+    try:
+        if command == "/diff" and reply.lstrip().startswith("diff --git"):
+            from rich.syntax import Syntax
+            body = Syntax(reply, "diff", theme="ansi_dark", background_color="default")
+        elif command:
+            body = Text(reply)
+        else:
+            from rich.markdown import Markdown
+            body = Markdown(reply)
+    except Exception:
+        body = Text(reply)
+    return Panel(
+        body, title=f"[bold {theme.ACCENT}]◆ raven[/]", title_align="left",
+        border_style=theme.BORDER, padding=(0, 1),
+    )
+
+
 def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
     import os
     import sys
 
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.styles import Style
     from rich.console import Console
     from rich.panel import Panel
 
@@ -73,14 +121,17 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
             safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), ok))
         elif event == "plan_step":
             glyph = {"active": "◉", "done": "✓", "failed": "✗"}.get(data.get("status"), "○")
-            safe_print(f"{glyph} {data.get('id')}  {data.get('action')}", style=theme.SECONDARY)
+            safe_print(f"[{theme.ACCENT}]{glyph}[/] [{theme.SECONDARY}]{data.get('id')}[/]  {data.get('action')}")
         elif event == "verify_start":
-            safe_print("◌ Verifying...", style=theme.MUTED)
+            safe_print(f"[{theme.ACCENT}]◌[/] [{theme.MUTED}]verifying...[/]")
         elif event == "verify_done":
             safe_print(render_verification(data.get("evidence")))
 
     def approve(description: str, args: dict) -> bool:
-        safe_print(Panel(f"{description}\n\nargs: {args}", title="[yellow]Approval required[/yellow]"))
+        safe_print(Panel(
+            f"{description}\n\nargs: {args}", title=f"[bold {theme.WARNING}]approval required[/]",
+            title_align="left", border_style=theme.WARNING,
+        ))
         try:
             choice = input("[y] allow once  [a] allow for session  [n] deny  > ").strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -91,21 +142,53 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
 
     session = SessionManager(config, gateway, repo_root, approve_fn=approve, on_event=on_event)
     interrupt.install()
-    prompt_session = PromptSession(history=InMemoryHistory())
+    prompt_style = Style.from_dict({
+        "mode": f"bg:{theme.DEEP} #ffffff bold",
+        "arrow": f"{theme.ACCENT} bold",
+        "bottom-toolbar": f"noreverse bg:{theme.BAR_BG} {theme.BAR_FG}",
+        "bottom-toolbar.key": f"noreverse bg:{theme.BAR_BG} {theme.ACCENT} bold",
+        "bottom-toolbar.dim": f"noreverse bg:{theme.BAR_BG} {theme.SECONDARY}",
+    })
+
+    def bottom_toolbar():
+        # Live status, re-rendered by prompt_toolkit on every redraw.
+        return [
+            ("class:bottom-toolbar.key", " ◆ "),
+            ("class:bottom-toolbar", f"{session.state.mode}"),
+            ("class:bottom-toolbar.dim", "  │  "),
+            ("class:bottom-toolbar", config.llm.model),
+            ("class:bottom-toolbar.dim", "  │  tokens "),
+            ("class:bottom-toolbar", f"{gateway.stats.total_tokens:,}"),
+            ("class:bottom-toolbar.dim", "  │  "),
+            ("class:bottom-toolbar.key", "/help"),
+            ("class:bottom-toolbar.dim", " commands  "),
+            ("class:bottom-toolbar.key", "ctrl-c"),
+            ("class:bottom-toolbar.dim", " interrupt  "),
+            ("class:bottom-toolbar.key", "/exit"),
+            ("class:bottom-toolbar.dim", " quit "),
+        ]
+
+    prompt_session = PromptSession(
+        history=InMemoryHistory(), style=prompt_style, bottom_toolbar=bottom_toolbar,
+    )
 
     if should_show_animation(sys.stdin.isatty() and sys.stdout.isatty(), os.environ.get("TERM"), "auto"):
         play_startup(console, config.llm.model)
 
-    safe_print(Panel(
-        f"repo: {repo_root}\nmodel: {config.llm.model}",
-        title="Raven", border_style=theme.PRIMARY,
-    ))
-    safe_print("Type a message, or /help for commands. Ctrl-C to interrupt, /exit to quit.\n")
+    safe_print(_top_bar(console.width, repo_root, config.llm.model))
+    safe_print(
+        f"[{theme.MUTED}]Ask about the code, paste an issue, or try[/] "
+        f"[{theme.ACCENT}]/plan[/] [{theme.MUTED}]·[/] [{theme.ACCENT}]/auto[/] "
+        f"[{theme.MUTED}]·[/] [{theme.ACCENT}]/help[/]\n"
+    )
 
     while True:
         interrupt.reset()
         try:
-            text = prompt_session.prompt(f"[{session.state.mode}] ❯ ")
+            text = prompt_session.prompt([
+                ("class:mode", f" {session.state.mode} "),
+                ("class:arrow", " ❯ "),
+            ])
         except (EOFError, KeyboardInterrupt):
             safe_print("Exiting.")
             return 0
@@ -129,21 +212,25 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
 
         if is_fresh_run:
             try:
-                safe_print(Panel(render_result_block(result), title="RAVEN RESULT", border_style=theme.PRIMARY))
+                safe_print(Panel(
+                    render_result_block(result), title=f"[bold {theme.ACCENT}]◆ result[/]",
+                    title_align="left", border_style=theme.BORDER if result.accepted else theme.ERROR,
+                    padding=(0, 1),
+                ))
             except Exception:
                 if reply:
-                    safe_print(Panel(reply, title="Raven", border_style=theme.SUCCESS))
+                    safe_print(_reply_panel(reply))
         elif reply:
-            safe_print(Panel(reply, title="Raven", border_style=theme.SUCCESS))
+            safe_print(_reply_panel(reply, command=text.split()[0] if text.startswith("/") else None))
 
-        if result is not None:
+        if result is not None and is_fresh_run:
+            status_style = f"bold #0b0b0b on {theme.SUCCESS}" if result.accepted else f"bold #ffffff on {theme.ERROR}"
             safe_print(
-                f"run {result.run_id} · "
-                f"{'RESOLVED' if result.accepted else 'UNRESOLVED'} · "
+                f"[{status_style}] {'RESOLVED' if result.accepted else 'UNRESOLVED'} [/]"
+                f"[{theme.MUTED}]  run {result.run_id} · "
                 f"tool calls {result.executor_result.tool_calls} · "
-                f"tokens {gateway.stats.total_tokens}",
-                style=theme.MUTED,
+                f"tokens {gateway.stats.total_tokens:,}[/]"
             )
-            safe_print("")
+        safe_print("")
 
     return 0
