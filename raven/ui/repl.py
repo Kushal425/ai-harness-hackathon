@@ -42,6 +42,10 @@ def plain_event_printer(event: str, data: dict) -> None:
     elif event == "tool_end":
         if not data.get("ok", True):
             print(f"[{data.get('tool', '')}] failed")
+        elif data.get("diff"):
+            from raven.ui.render import diff_stats
+            files, added, removed = diff_stats(data["diff"])
+            print(f"[{data.get('tool', '')}] {', '.join(files)} +{added} -{removed}")
     elif event == "notice":
         print(f"[raven] {data.get('text', '')}")
     elif event == "crux":

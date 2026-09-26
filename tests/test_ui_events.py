@@ -64,6 +64,7 @@ def test_on_event_that_always_raises_does_not_affect_outcome(repo):
 def test_tool_start_and_tool_end_fire_in_order_per_tool_call(repo):
     events = []
     _run(repo, on_event=lambda event, data: events.append((event, data.get("tool"))))
+    events = [(e, t) for e, t in events if e.startswith("tool_")]  # "working" spinner events interleave
 
     names = [e for e, _ in events]
     assert names == ["tool_start", "tool_end", "tool_start", "tool_end", "tool_start", "tool_end", "tool_start", "tool_end"]

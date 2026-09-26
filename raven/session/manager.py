@@ -58,6 +58,28 @@ def _is_github_checkout(repo_root: Path, owner: str, name: str) -> bool:
     return url.rstrip("/").removesuffix(".git").endswith(f"{owner}/{name}".lower())
 
 
+_SMALL_TALK_RE = re.compile(
+    r"^\s*(hi+|hello+|hey+|yo|hola|namaste|good (morning|afternoon|evening|night)|thanks?( you)?|thank you|"
+    r"thx|ty|ok(ay)?|cool|nice|great|bye|goodbye|see you|who are you|what are you|how are you|"
+    r"what('?s| is) your name|sup|what'?s up)[\s!.?,]*(raven)?[\s!.?]*$",
+    re.IGNORECASE,
+)
+
+
+def is_small_talk(text: str) -> bool:
+    return bool(_SMALL_TALK_RE.match(text))
+
+
+def _is_tool_call(text: str) -> bool:
+    from raven.core.protocol import ActionParseError, parse_action
+
+    try:
+        parse_action(text)
+        return True
+    except ActionParseError:
+        return False
+
+
 def looks_like_an_issue(text: str) -> bool:
     if len(text) > 150:
         return True
@@ -484,6 +506,10 @@ class SessionManager:
         return f"repository: {root.name}  ({root})\n{digest}"
 
     def _chat_reply(self, text: str) -> str:
+        if is_small_talk(text):
+            # "hello", "thanks", "who are you": nothing to look up -- one
+            # direct reply, no tool loop (small models otherwise go exploring)
+            return self._plain_reply(text)
         try:
             registry = build_default_registry()
             ctx = RunContext(repo_root=self.state.repo_root, mode="chat")
@@ -500,11 +526,16 @@ class SessionManager:
             # prose without an action block — common for casual questions).
             # Use its own raw words rather than firing a second, tool-blind
             # call that has no idea Raven can read the repo at all.
-            if result.last_raw_text:
+            if result.last_raw_text and not _is_tool_call(result.last_raw_text):
                 return result.last_raw_text
+            # Out of turns mid-exploration: never show a raw tool call as
+            # the answer -- ask once more for a plain answer instead.
         except Exception:
             pass  # fall through to a plain reply — chat must never hard-fail
+        return self._plain_reply(text)
 
+    def _plain_reply(self, text: str) -> str:
+        """One tool-free, repo-grounded chat call."""
         self.history.append(Message(role="user", content=text))
         # The fallback still knows which repo it's in -- without this, a
         # question like "what is this repo about?" gets "which repo?".

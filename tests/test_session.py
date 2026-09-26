@@ -139,7 +139,7 @@ def test_chat_mode_auto_detects_issue_and_runs_autonomous(repo):
         "bug in calc/arithmetic.py's average() function that divides by the "
         "wrong count."
     )
-    greeting = '```action\n{"tool": "done", "args": {"summary": "Hello!"}}\n```'
+    greeting = "Hello!"  # small talk is one direct reply, no agent loop
     lesson = "(no lesson)"  # the run's end-of-run lesson-extraction call
     session = _session(repo, FIX_SEQUENCE + [lesson, greeting])
     reply = session.handle_input(long_issue)
@@ -262,3 +262,23 @@ def test_plain_repl_reads_a_multiline_paste_as_one_message(monkeypatch):
     os.write(master, b"Title: average() is wrong\nSteps to reproduce:\naverage([2,4,6])\n")
     message = read_message("> ")
     assert message.splitlines() == ["Title: average() is wrong", "Steps to reproduce:", "average([2,4,6])"]
+
+
+def test_small_talk_gets_one_direct_reply_without_exploring(repo):
+    from raven.session.manager import is_small_talk
+
+    for text in ("Hello", "hi!", "thanks", "who are you?", "Hello Raven"):
+        assert is_small_talk(text), text
+    for text in ("hello, what does average() do?", "fix the bug", "why is test_average failing?"):
+        assert not is_small_talk(text), text
+    session = _session(repo, ["Greetings, wanderer."])
+    assert session.handle_input("Hello") == "Greetings, wanderer."
+    assert session.gateway.stats.calls == 1
+
+
+def test_chat_never_shows_a_tool_call_as_the_answer(repo):
+    # the model keeps exploring until chat's turn limit (seen live with Hello -> read, read, read ...)
+    read = '{"tool": "read", "args": {"path": "calc/arithmetic.py"}}'
+    session = _session(repo, [read] * 6 + ["average() divides by len(numbers) + 1."])
+    reply = session.handle_input("what does average() do")
+    assert reply == "average() divides by len(numbers) + 1."

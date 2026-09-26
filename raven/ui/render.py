@@ -156,3 +156,67 @@ def render_crux_line(data: dict):
 def render_crux_text(data: dict) -> str:
     """Plain form for the REPL / piped path."""
     return f"[crux:{data.get('stage', '')}] {data.get('text', '')}"[:240]
+
+
+def diff_stats(diff: str) -> tuple[list[str], int, int]:
+    """(files, added lines, removed lines) of a unified diff."""
+    files = [l[6:] for l in diff.splitlines() if l.startswith("+++ b/")]
+    added = sum(1 for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in diff.splitlines() if l.startswith("-") and not l.startswith("---"))
+    return files, added, removed
+
+
+def diff_header(label: str, diff: str):
+    """`✎ c1 · listkit/chunks.py  +1 −1`"""
+    from rich.text import Text
+
+    files, added, removed = diff_stats(diff)
+    head = Text("   ✎ ", style=theme.ACCENT)
+    head.append(label, style=f"bold {theme.PRIMARY}")
+    if files:
+        head.append(" · " + ", ".join(files[:3]) + (" …" if len(files) > 3 else ""), style=theme.TEXT)
+    head.append(f"  +{added}", style=theme.SUCCESS)
+    head.append(f" −{removed}", style=theme.ERROR)
+    return head
+
+
+def diff_lines(diff: str, max_lines: int = 20) -> list:
+    """The diff body as styled lines, like an editor gutter: additions green,
+    removals red, hunk markers dim; long diffs are cut with a count."""
+    from rich.text import Text
+
+    import re
+
+    body = [l for l in diff.splitlines() if not l.startswith(("---", "+++", "diff --git", "index "))]
+    out = []
+    for line in body[:max_lines]:
+        if line.startswith("@@"):
+            m = re.search(r"\+(\d+)", line)
+            where = f"line {m.group(1)}" if m else ""
+            context = line.split("@@")[-1].strip()
+            text = Text(f"     ⋯ {where}" + (f"  {context}" if context else ""), style=theme.MUTED)
+        elif line.startswith("+"):
+            text = Text("     + " + line[1:], style=f"{theme.SUCCESS} on #0f2a1a")
+        elif line.startswith("-"):
+            text = Text("     − " + line[1:], style=f"{theme.ERROR} on #2a0f14")
+        else:
+            text = Text("       " + line[1:], style=theme.MUTED)
+        out.append(text)
+    if len(body) > max_lines:
+        out.append(Text(f"     … {len(body) - max_lines} more lines", style=theme.MUTED))
+    return out
+
+
+def type_out(print_fn, label: str, diff: str, max_lines: int = 20, budget_s: float = 0.8) -> None:
+    """Print a code change line by line, like someone typing it -- capped
+    at `budget_s` however long the diff (used by the TUI and `make demo`)."""
+    import time
+
+    if not diff:
+        return
+    print_fn(diff_header(label, diff))
+    lines = diff_lines(diff, max_lines)
+    delay = min(0.03, budget_s / max(1, len(lines)))
+    for line in lines:
+        print_fn(line, no_wrap=True, overflow="ellipsis")  # crop long lines like an editor, don't wrap
+        time.sleep(delay)

@@ -3,6 +3,7 @@ and auto-revert on failure (plan §8.2, §10.1)."""
 
 from __future__ import annotations
 
+import difflib
 import py_compile
 import re
 import tempfile
@@ -65,7 +66,13 @@ def edit(ctx: RunContext, path: str, search: str, replace: str) -> ToolResult:
             resolved.write_text(original)  # auto-revert
             return ToolResult(ok=False, output=f"edit reverted: syntax error after edit: {err}")
 
-    return ToolResult(ok=True, output=f"edited {path}")
+    return ToolResult(ok=True, output=f"edited {path}", data={"diff": unified_diff(path, original, new_text)})
+
+
+def unified_diff(path: str, before: str, after: str) -> str:
+    """The change as a unified diff (for the live UI; never sent to the model)."""
+    return "".join(difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
+                                        fromfile=f"a/{path}", tofile=f"b/{path}", n=2))
 
 
 def _check_syntax(path: Path) -> tuple[bool, str]:

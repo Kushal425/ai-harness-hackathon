@@ -166,7 +166,10 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
     from raven.session.manager import SessionManager
     from raven.ui import theme
     from raven.ui.animations import play_startup, should_show_animation
-    from raven.ui.render import render_crux_line, render_result_block, render_tool_line, render_verification
+    from raven.ui.render import (
+        render_crux_line, render_result_block, render_tool_line, render_verification,
+    )
+    from raven.ui.render import type_out as render_type_out
 
     console = Console()
     repo_root = Path(repo_root)
@@ -182,15 +185,43 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
             except Exception:
                 pass
 
+    spinner = {"status": None}
+
+    def stop_spinner() -> None:
+        if spinner["status"] is not None:
+            try:
+                spinner["status"].stop()
+            except Exception:
+                pass
+            spinner["status"] = None
+
+    def type_out(label: str, diff: str, max_lines: int) -> None:
+        render_type_out(safe_print, label, diff, max_lines)
+
     def on_event(event: str, data: dict) -> None:
+        stop_spinner()
+        if event == "working":
+            try:
+                spinner["status"] = console.status(f"[{theme.SECONDARY}]{data.get('text', 'working…')}[/]",
+                                                   spinner="dots", spinner_style=theme.ACCENT)
+                spinner["status"].start()
+            except Exception:
+                spinner["status"] = None
+            return
         if event == "tool_end":
             # one line per call, printed once it's finished (✓ / ✗); a
             # separate "started" line just doubled every entry
             safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), data.get("ok")))
+            if data.get("ok") and data.get("diff"):
+                type_out(str(data.get("args", {}).get("path", "edit")), data["diff"], 20)
         elif event == "notice":
             safe_print(f"[{theme.ACCENT}]◆[/] [{theme.SECONDARY}]{data.get('text', '')}[/]")
         elif event == "crux":
             safe_print(render_crux_line(data))
+            if data.get("stage") == "candidate" and data.get("diff") and data.get("status") != "invalid":
+                type_out(data.get("id", "candidate"), data["diff"], 10)
+            elif data.get("stage") == "select" and data.get("diff"):
+                type_out("applying the selected fix", data["diff"], 30)
         elif event == "plan_step":
             glyph = {"active": "◉", "done": "✓", "failed": "✗"}.get(data.get("status"), "○")
             safe_print(f"[{theme.ACCENT}]{glyph}[/] [{theme.SECONDARY}]{data.get('id')}[/]  {data.get('action')}")
@@ -200,6 +231,7 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
             safe_print(render_verification(data.get("evidence")))
 
     def approve(description: str, args: dict) -> bool:
+        stop_spinner()
         safe_print(Panel(
             f"{description}\n\nargs: {args}", title=f"[bold {theme.WARNING}]approval required[/]",
             title_align="left", border_style=theme.WARNING,
@@ -280,8 +312,11 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
 
         run_id_before = session.state.last_result.run_id if session.state.last_result else None
         try:
-            with _typeahead_hidden():
-                reply = session.handle_input(text)
+            try:
+                with _typeahead_hidden():
+                    reply = session.handle_input(text)
+            finally:
+                stop_spinner()
         except KeyboardInterrupt:
             safe_print("Interrupted — rolled back any partial changes from this command.", style=theme.WARNING)
             continue

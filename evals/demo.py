@@ -29,7 +29,6 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from rich.console import Console  # noqa: E402
 from rich.panel import Panel  # noqa: E402
-from rich.syntax import Syntax  # noqa: E402
 
 from raven.config import RunSettings  # noqa: E402
 from raven.core.orchestrator import run_orchestrator  # noqa: E402
@@ -37,7 +36,7 @@ from raven.crux.patching import applied  # noqa: E402
 from raven.llm.fake import FakeClient  # noqa: E402
 from raven.llm.gateway import LLMGateway  # noqa: E402
 from raven.ui import theme  # noqa: E402
-from raven.ui.render import render_crux_line, render_verification  # noqa: E402
+from raven.ui.render import render_crux_line, render_verification, type_out  # noqa: E402
 
 TASK = REPO_ROOT / "evals" / "tasks" / "t15_crux_chunk_plausible_wrong_patch.yaml"
 
@@ -65,18 +64,22 @@ def main() -> int:
 
     client = FakeClient(list(task["scripted_responses"]))
     gateway = LLMGateway(client)
+    def show(event, data):
+        if event != "crux":
+            return
+        console.print(render_crux_line(data))
+        if data.get("stage") == "candidate" and data.get("diff") and data.get("status") != "invalid":
+            type_out(console.print, data["id"], data["diff"], 8)
+        elif data.get("stage") == "select" and data.get("diff"):
+            type_out(console.print, "applying the selected fix", data["diff"], 20)
+
     result = run_orchestrator(gateway, work, task["goal"], strategy="crux",
                               settings=RunSettings(candidates=3, parallel_calls=False, trace=False, lessons=False),
-                              on_event=lambda e, d: console.print(render_crux_line(d)) if e == "crux" else None)
+                              on_event=show)
 
     console.print()
     console.print(Panel(render_verification(result.evidence), title=f"[bold {theme.ACCENT}]◆ verification[/]",
                         title_align="left", border_style=theme.BORDER))
-    diff = subprocess.run(["git", "diff", "--no-index", "--", str(REPO_ROOT / "tests/fixtures/crux_demo/listkit/chunks.py"),
-                           str(work / "listkit" / "chunks.py")], capture_output=True, text=True).stdout
-    console.print(Syntax(diff.split("\n", 4)[-1] if diff else "(no diff)", "diff", theme="ansi_dark",
-                         background_color="default"))
-
     # The proof: what the hidden grader says about the selected fix vs the rejected one.
     hidden = task["check"]["hidden_test"]
     crux = result.evidence["crux"]

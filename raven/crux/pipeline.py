@@ -60,6 +60,15 @@ class CruxOutcome:
         return "\n\n".join(parts)
 
 
+def _working(on_event, text: str) -> None:
+    """A slow step is starting (the UI shows a live spinner until the next event)."""
+    if on_event:
+        try:
+            on_event("working", {"text": text})
+        except Exception:
+            pass
+
+
 def _emit(on_event, stage: str, text: str, **data) -> None:
     if on_event:
         try:
@@ -187,6 +196,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     ranked = rmap.rank(card)
     _emit(on_event, "map", f"indexed {len(rmap.functions)} functions, {len(rmap.test_files)} test files")
 
+    _working(on_event, "reading the issue and locating the code…")
     located = _locate(gateway, ledger, card, rmap, ranked)
     if not located:
         return None
@@ -194,6 +204,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     fns = [f for _, f in located]
     _emit(on_event, "localize", " · ".join(f"{l['file']}::{l['symbol']}" for l in locations))
 
+    _working(on_event, "writing a probe that reproduces the issue…")
     probe, before = _probe(gateway, ledger, card, rmap, fns, repo_root)
     reproduced = bool(before and before.expectation_known and not before.all_expected_met)
     if probe:
@@ -221,6 +232,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
         n = k if round_no == 0 else min(2, max_candidates - len(out.candidates))
         if n <= 0:
             break
+        _working(on_event, f"writing {n} candidate fix{'es' if n > 1 else ''}…")
         batch = cand_mod.generate(gateway, ledger, repo_root, prefix, locations, len(out.candidates), n, parallel)
         for cand in batch:
             out.candidates.append(cand)
@@ -234,7 +246,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
             if best_key is None or key > best_key:
                 best_key, out.best = key, cand
             _emit(on_event, "candidate", f"{cand.id} {cand.status} ({cand.size} changed lines) — {cand.hypothesis}",
-                  id=cand.id, status=cand.status)
+                  id=cand.id, status=cand.status, diff=cand.diff)
         alive = [c for c in out.candidates if c.status == "alive"]
         if alive and (len(alive) >= 2 or reproduced or len(out.candidates) >= max_candidates):
             break
@@ -279,6 +291,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     base_cases = list(probe.cases) if probe else []
     cases = base_cases + variant_cases(Probe(setup, base_cases)) + harvested_cases(rmap, {f.name for f in fns})
     crux_probe = Probe(setup, [Case(c.expr, None, None, c.setup, c.origin) for c in cases])
+    _working(on_event, f"running {len(alive)} surviving fix(es) on {len(cases)} inputs…")
     original_run = run_probe(repo_root, crux_probe) if cases else None
     fps = {}
     for cand in alive:
@@ -316,6 +329,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
         orig = original_run.results[idx].outcome if original_run else None
         _emit(on_event, "crux", f"{case.expr}   " + "  vs  ".join(
             f"[{c.label}] {c.fingerprint[idx]}" for c in clusters))
+        _working(on_event, f"asking one question: what should {case.expr} do?")
         verdict = adjudicate(gateway, ledger, card.text, code, case, idx, clusters, orig, evidence)
         out.verdicts.append(verdict)
         _emit(on_event, "verdict", f"{verdict.choice}: {verdict.because}", choice=verdict.choice)
@@ -330,5 +344,5 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     for c in alive:
         if c.id not in {m for cl in clusters for m in cl.members}:
             c.status = "rejected-by-crux"
-    _emit(on_event, "select", f"selected {out.winner.id} ({out.winner.size} changed lines)")
+    _emit(on_event, "select", f"selected {out.winner.id} ({out.winner.size} changed lines)", diff=out.winner.diff)
     return out

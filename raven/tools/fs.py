@@ -45,7 +45,10 @@ def create(ctx: RunContext, path: str, content: str) -> ToolResult:
         return ToolResult(ok=False, output=f"refusing to overwrite existing file: {path}")
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(content)
-    return ToolResult(ok=True, output=f"created {path} ({len(content.splitlines())} lines)")
+    from raven.tools.edit import unified_diff
+
+    return ToolResult(ok=True, output=f"created {path} ({len(content.splitlines())} lines)",
+                      data={"diff": unified_diff(path, "", content)})
 
 
 READ_TOOL = Tool(

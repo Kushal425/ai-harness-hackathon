@@ -102,6 +102,7 @@ def run_single_loop(
                     history.append(HistoryEntry(turn=turn, role="result", text=f"[budget] {nudge}"))
 
             messages = context_engine.assemble(state, turn)
+            _emit("working", {"text": "thinking about the answer…" if answer_mode else "thinking…"})
 
             try:
                 completion = gateway.complete(messages, tools=tool_schemas)
@@ -159,7 +160,8 @@ def run_single_loop(
             _emit("tool_start", {"tool": action.tool, "args": action.args})
             tool_result = registry.dispatch(action.tool, action.args, ctx)
             tool_calls += 1
-            _emit("tool_end", {"tool": action.tool, "args": action.args, "ok": tool_result.ok, "output": tool_result.output})
+            _emit("tool_end", {"tool": action.tool, "args": action.args, "ok": tool_result.ok,
+                               "output": tool_result.output, "diff": (tool_result.data or {}).get("diff")})
             recovery.record_action_result(action.tool, action.args, turn, tool_result.output)
             history.append(
                 HistoryEntry(
