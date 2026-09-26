@@ -42,6 +42,8 @@ def plain_event_printer(event: str, data: dict) -> None:
     elif event == "tool_end":
         if not data.get("ok", True):
             print(f"[{data.get('tool', '')}] failed")
+    elif event == "notice":
+        print(f"[raven] {data.get('text', '')}")
     elif event == "crux":
         from raven.ui.render import render_crux_text
         print(render_crux_text(data))

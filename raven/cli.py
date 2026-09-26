@@ -17,7 +17,11 @@ from raven.core.orchestrator import run_orchestrator
 from raven.llm.fake import FakeClient
 from raven.llm.gateway import LLMGateway
 from raven.llm.providers import OpenAICompatibleClient
-from raven.intake import REPO_HELP, clone_repo, expand_issue_refs, is_harness_repo, looks_like_git_url, resolve_repo
+from raven.github import parse_issue_ref
+from raven.intake import (
+    REPO_HELP, clone_repo, expand_issue_refs, github_issue_task, is_harness_repo, looks_like_git_url, resolve_repo,
+)
+from raven.workspace import export_patch, in_workspace
 from raven.ui.repl import plain_event_printer, run_repl
 from raven.ui.tui import rich_available, run_tui, should_use_tui
 
@@ -93,6 +97,13 @@ def run_autonomous(config, gateway, repo_root: Path, goal: str, strategy: str | 
             print(f"repro:    fails before fix: {repro['failed_before']}  ·  passes after: {repro['passes_after']}")
         print(f"evidence: {result.evidence}")
     print(f"report:   {result.report_path}")
+    if in_workspace(repo_root):
+        # an isolated GitHub worktree: hand back the patch, never push
+        try:
+            print(f"worktree: {repo_root}")
+            print(f"patch:    {export_patch(repo_root, result.report_path)}")
+        except Exception as exc:
+            print(f"patch:    (could not export: {exc})")
 
     from raven.tools.git_tool import is_repo_toplevel
     if is_repo_toplevel(repo_root):
@@ -127,8 +138,19 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolved once, to an absolute path: --repo, then RAVEN_REPO, then cwd.
     repo_root = resolve_repo(args.repo)
-    if issue_text and looks_like_git_url(args.repo or ""):
-        repo_root = clone_repo(args.repo)
+    github_issue = parse_issue_ref(issue_text) if issue_text else None
+    try:
+        if issue_text and looks_like_git_url(args.repo or ""):
+            repo_root = clone_repo(args.repo)
+        elif github_issue and is_harness_repo(repo_root) and config.llm.api_key:
+            # A GitHub issue and no local repository: fetch the repo into an
+            # isolated worktree and run the issue there.
+            owner, name, number = github_issue
+            print(f"[raven] fetching {owner}/{name}#{number} into an isolated workspace...")
+            repo_root, issue_text = github_issue_task(owner, name, number)
+    except RuntimeError as exc:
+        print(f"[raven] GitHub: {exc}", file=sys.stderr)
+        return 2
 
     if issue_text or not interactive:
         if not config.llm.api_key:

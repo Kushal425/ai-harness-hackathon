@@ -70,7 +70,7 @@ export RAVEN_REPO=/path/to/target-repo          # then: make run
 
 In a real terminal this launches the TUI (rich panels, live tool stream). `TERM=dumb` or a failing TUI falls back to a plain REPL automatically.
 
-`make test` runs the full offline test suite (244 tests; no API key or network — the model is a scripted `FakeClient`).
+`make test` runs the full offline test suite (258 tests; no API key or network — the model is a scripted `FakeClient`).
 
 ```bash
 make test               # offline unit + integration tests
@@ -102,6 +102,29 @@ make run ARGS="--repo /path/to/repo --issue-file issue.txt"
 
 A GitHub issue URL anywhere in the task is expanded with the issue's title and body (fetched by the harness; `GITHUB_TOKEN` is used if set). `--repo` also accepts a git URL, which is cloned. `--strategy` overrides `executor.strategy` (`single_loop` | `plan_execute` | `delegated`) for one run.
 
+## GitHub
+
+GitHub is Raven's input layer — the same Crux pipeline runs on the result. The flow is **connect → choose repo → choose issue → run**, entirely inside the TUI:
+
+```
+/gh login                 # or: export GITHUB_TOKEN=..., or an existing `gh auth login` is used automatically
+/gh repos [filter]        # every repo you can access: owned, collaborator, organisation (Tab completes names)
+/gh use <#|owner/name>    # clone + an isolated worktree on branch raven/session-<time>
+/gh issues [filter]       # open issues of that repo
+/gh issue 42              # fresh worktree for #42, then the agent runs on it; prints the patch path
+```
+
+Pasting a GitHub issue URL into the chat does the same. Non-interactively:
+
+```bash
+make run ARGS="--issue https://github.com/owner/repo/issues/42"   # fetches the repo itself; public repos need no login
+```
+
+- **Isolation:** `workspaces/<owner>__<repo>/base` is a clone Raven never edits; every task gets its own git worktree and branch. Nothing is ever pushed — the result is the worktree's diff, saved as `patch.diff` next to the run report.
+- **Context:** the issue's title, labels, body, non-bot discussion (capped) and linked PRs/issues become the task; recent commits touching the file being fixed become adjudication evidence. Nothing else from GitHub is sent to the model.
+- **Security:** tokens come from the environment, the device flow (saved at `~/.config/raven/github.json`, mode 0600), or the GitHub CLI — never source or config. The token goes only to api.github.com and to git via environment config (not `.git/config`, a URL, or argv), never into prompts or reports; a rejected token is cleared. Repository names, branches and issue numbers are validated before they reach git; issue text is fenced as untrusted description and never executed.
+- **Setup:** only needed for private repositories — see `.env.example` (`GITHUB_TOKEN`, or `RAVEN_GITHUB_CLIENT_ID` for `/gh login`).
+
 ## Conversation layer
 
 Modes: **Chat** (default, read-only, uses tools to answer questions about the repo) · **Plan** (`/plan <task>`, shows a plan and waits) · **Act** (`/act`, executes the exact plan you were shown — it does not silently recompute one) · **Autonomous** (`/auto <task>`, or auto-detected) · **Review** (`/review`, an independent critique of the current diff).
@@ -113,6 +136,7 @@ Slash commands: `/help /plan /act /auto /review /diff /undo /checkpoints /eviden
 ```
 raven/
 ├── cli.py · config.py · prompts.py           entry point, config loading, versioned prompt loader
+├── github.py · workspace.py · intake.py       GitHub auth/discovery/issues, isolated worktrees, task intake
 ├── crux/           issue · repomap · probe · candidates · patching · regression · disagree ·
 │                   adjudicate · certificate · pipeline      the default strategy (see above)
 ├── llm/            gateway.py · providers.py · fake.py · protocol.py
@@ -132,7 +156,7 @@ raven/
 
 prompts/base.yaml    every prompt the harness sends to a model, versioned (plan §12.3)
 evals/                tasks/*.yaml · run_evals.py · results/baseline.md
-tests/                 244 offline tests (FakeClient) + tests/fixtures/{toy_repo,crux_demo}
+tests/                 258 offline tests (FakeClient) + tests/fixtures/{toy_repo,crux_demo}
 ```
 
 **Orchestrator state machine** (`raven/core/orchestrator.py`):

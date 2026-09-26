@@ -77,11 +77,26 @@ def gather_evidence(rmap: RepoMap, targets: list[FunctionInfo], case: Case, limi
                     out.append(entry)
             if len(out) >= limit:
                 return out
+    for path in sorted(modules):  # recent history of the file being fixed (local git, no API)
+        for line in _recent_commits(rmap.repo_root, path)[:3]:
+            if len(out) < limit:
+                out.append(f"git log {path}: {line}")
     for doc in ("README.md", "README.rst", "docs/index.md"):
         for lineno, line in enumerate(_read(rmap.repo_root / doc), start=1):
             if any(re.search(rf"\b{re.escape(n)}\b", line) for n in names) and len(out) < limit:
                 out.append(f"{doc}:{lineno}  {line.strip()[:160]}")
     return out
+
+
+def _recent_commits(repo_root: Path, path: str) -> list[str]:
+    import subprocess
+
+    try:
+        proc = subprocess.run(["git", "-C", str(repo_root), "log", "-n", "3", "--format=%h %s", "--", path],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [l[:140] for l in proc.stdout.splitlines() if l.strip()] if proc.returncode == 0 else []
 
 
 def _read(path: Path) -> list[str]:

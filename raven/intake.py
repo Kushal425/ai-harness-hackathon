@@ -30,7 +30,9 @@ REPO_HELP = (
     "Point Raven at the repository to work on, any one of:\n"
     "  make run ARGS=\"--repo /path/to/repo\"\n"
     "  export RAVEN_REPO=/path/to/repo   (then make run)\n"
-    "  /repo /path/to/repo               (inside the TUI; a git URL is cloned)"
+    "  /repo /path/to/repo               (inside the TUI; a git URL is cloned)\n"
+    "or give a GitHub issue URL as the task (the repository is fetched automatically):\n"
+    "  make run ARGS=\"--issue https://github.com/owner/repo/issues/123\""
 )
 
 
@@ -54,8 +56,19 @@ def looks_like_git_url(text: str) -> bool:
 
 
 def clone_repo(url: str, dest_root: Path = WORKSPACES_DIR, timeout: int = 300) -> Path:
-    """Clones `url` (once) into dest_root/<name> and returns the path.
-    Raises RuntimeError with git's message on failure."""
+    """A working copy for a repository URL. GitHub repositories get an
+    isolated per-task worktree (raven/workspace.py); other git URLs are
+    cloned once into dest_root/<name>. Raises RuntimeError on failure."""
+    from raven.github import parse_repo
+
+    try:
+        owner, name = parse_repo(url)
+    except ValueError:
+        owner = name = None
+    if owner:
+        path, _ = github_workspace(owner, name, label="session",
+                                   root=None if dest_root == WORKSPACES_DIR else dest_root)
+        return path
     url = url.strip().rstrip("/")
     name = re.sub(r"\.git$", "", url.split("/")[-1].split(":")[-1]) or "repo"
     dest = Path(dest_root) / name
@@ -70,27 +83,45 @@ def clone_repo(url: str, dest_root: Path = WORKSPACES_DIR, timeout: int = 300) -
     return dest.resolve()
 
 
-def fetch_github_issue(owner: str, repo: str, number: str, timeout: float = 10.0) -> str | None:
-    """Title + body of a public GitHub issue, or None on any failure."""
-    try:
-        import httpx
+def github_workspace(owner: str, name: str, branch: str | None = None, label: str = "task",
+                     client=None, web: str | None = None, root: Path | None = None) -> tuple[Path, str]:
+    """Fresh clone/fetch of owner/name and a new isolated worktree for one
+    task. Returns (worktree, branch). Raises RuntimeError on failure."""
+    from raven.github import GitHubClient, GitHubError
+    from raven.workspace import WorkspaceError, default_branch, ensure_clone, new_worktree
 
-        headers = {"Accept": "application/vnd.github+json"}
-        token = os.environ.get("GITHUB_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        resp = httpx.get(
-            f"https://api.github.com/repos/{owner}/{repo}/issues/{number}",
-            headers=headers, timeout=timeout, follow_redirects=True,
-        )
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        title = (data.get("title") or "").strip()
-        body = (data.get("body") or "").strip()
-        if not title and not body:
-            return None
-        return f"{title}\n\n{body}".strip()
+    try:
+        from raven import github, workspace
+
+        client = client or GitHubClient(allow_anonymous=True)
+        base = ensure_clone(owner, name, client.token, web or github.WEB, root or workspace.WORKSPACES_DIR)
+        branch = branch or default_branch(base)
+        return new_worktree(base, branch, label), branch
+    except (GitHubError, WorkspaceError) as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def github_issue_task(owner: str, name: str, number: int, branch: str | None = None, client=None,
+                      web: str | None = None, root: Path | None = None) -> tuple[Path, str]:
+    """GitHub issue -> (isolated worktree, task text for the harness)."""
+    from raven.github import GitHubClient, GitHubError
+
+    try:
+        client = client or GitHubClient(allow_anonymous=True)
+        issue = client.issue(owner, name, number)
+    except GitHubError as exc:
+        raise RuntimeError(str(exc)) from exc
+    path, _ = github_workspace(owner, name, branch, label=f"issue-{number}", client=client, web=web, root=root)
+    return path, issue.to_task()
+
+
+def fetch_github_issue(owner: str, repo: str, number: str, timeout: float = 10.0) -> str | None:
+    """A GitHub issue (title, labels, body, discussion, linked PRs) as task
+    text, or None on any failure. Uses the GitHub login if there is one."""
+    try:
+        from raven.github import GitHubClient
+
+        return GitHubClient(allow_anonymous=True).issue(owner, repo, int(number)).to_task()
     except Exception:
         return None
 
@@ -99,10 +130,11 @@ def expand_issue_refs(text: str, fetch=fetch_github_issue) -> str:
     """Appends the fetched title/body of every GitHub issue URL in `text`.
     Unfetchable issues are left as-is (the URL still reaches the model)."""
     extra = []
-    for owner, repo, number in dict.fromkeys(GITHUB_ISSUE_RE.findall(text)):
+    for owner, repo, number in list(dict.fromkeys(GITHUB_ISSUE_RE.findall(text)))[:3]:
         issue = fetch(owner, repo, number)
         if issue:
-            extra.append(f"--- GitHub issue {owner}/{repo}#{number} ---\n{issue}")
+            extra.append(issue if issue.startswith("The task is described") else
+                         f"--- GitHub issue {owner}/{repo}#{number} ---\n{issue}")
     return text if not extra else text.rstrip() + "\n\n" + "\n\n".join(extra)
 
 
@@ -111,7 +143,8 @@ def ask_for_target_repo(ask, say) -> str | None:
     on. `ask(prompt) -> str`, `say(text)`. Returns the answer, or None to
     stay where we are."""
     say("Raven is running inside its own source tree. Which repository should it work on?\n"
-        "Enter a path or a git URL (it will be cloned), or press Enter to stay here.")
+        "Enter a path, a GitHub repo (owner/name or URL; cloned into an isolated workspace),\n"
+        "or press Enter and use /gh to browse your GitHub repositories.")
     try:
         answer = ask("repo path or git URL: ").strip()
     except (EOFError, KeyboardInterrupt):

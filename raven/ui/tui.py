@@ -87,6 +87,43 @@ class _typeahead_hidden:
         return False
 
 
+def _slash_completions(text: str, data: dict) -> list[str]:
+    """Pure completion logic: slash commands, then repo names after
+    `/gh use ` and issue numbers after `/gh issue `, filtered by substring."""
+    if text.startswith("/gh use "):
+        needle = text[len("/gh use "):].lower()
+        return [r for r in data.get("repos", []) if needle in r.lower()][:50]
+    if text.startswith("/gh issue "):
+        needle = text[len("/gh issue "):]
+        return [n for n in data.get("issues", []) if n.startswith(needle)][:50]
+    if text.startswith("/gh "):
+        sub = text[4:]
+        return [c for c in ("login", "status", "repos", "use", "branches", "issues", "issue", "logout")
+                if c.startswith(sub)]
+    if text.startswith("/") and " " not in text:
+        return [c for c in data.get("commands", []) if c.startswith(text)]
+    return []
+
+
+class _SlashCompleter:
+    """prompt_toolkit completer (duck-typed so this module imports without it)."""
+
+    def __init__(self, data_fn):
+        self.data_fn = data_fn
+
+    def get_completions(self, document, complete_event):
+        from prompt_toolkit.completion import Completion
+
+        text = document.text_before_cursor
+        word = text.rsplit(" ", 1)[-1]
+        for option in _slash_completions(text, self.data_fn()):
+            yield Completion(option, start_position=-len(word))
+
+    async def get_completions_async(self, document, complete_event):
+        for c in self.get_completions(document, complete_event):
+            yield c
+
+
 def _reply_panel(reply: str, command: str | None = None):
     """A Raven reply in a violet frame. Model replies render as Markdown;
     slash-command output is pre-formatted (aligned columns, diffs), so it's
@@ -150,6 +187,8 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
             # one line per call, printed once it's finished (✓ / ✗); a
             # separate "started" line just doubled every entry
             safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), data.get("ok")))
+        elif event == "notice":
+            safe_print(f"[{theme.ACCENT}]◆[/] [{theme.SECONDARY}]{data.get('text', '')}[/]")
         elif event == "crux":
             safe_print(render_crux_line(data))
         elif event == "plan_step":
@@ -203,6 +242,7 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
 
     prompt_session = PromptSession(
         history=InMemoryHistory(), style=prompt_style, bottom_toolbar=bottom_toolbar,
+        completer=_SlashCompleter(lambda: session.completions()), complete_while_typing=False,
     )
 
     if should_show_animation(sys.stdin.isatty() and sys.stdout.isatty(), os.environ.get("TERM"), "auto"):
