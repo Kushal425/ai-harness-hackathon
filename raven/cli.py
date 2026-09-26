@@ -47,6 +47,7 @@ def build_gateway(config) -> LLMGateway:
             seed=config.llm.seed,
             max_output_tokens=config.llm.max_output_tokens,
             timeout_s=config.llm.request_timeout_s,
+            tool_protocol=config.llm.tool_protocol,
         )
     return LLMGateway(client, max_retries=config.llm.max_retries, seed=config.llm.seed)
 

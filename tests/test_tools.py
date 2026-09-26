@@ -148,3 +148,23 @@ def test_target_repo_tests_never_see_api_key(tmp_path, monkeypatch):
         "import os\n\ndef test_no_key():\n    assert 'AI_API_KEY' not in os.environ\n"
     )
     assert run_tests(RunContext(repo_root=tmp_path, mode="autonomous")).ok
+
+
+def test_hallucinated_tool_names_get_aliases_or_the_real_tool_list(tmp_path):
+    from raven.tools.registry import RunContext, build_default_registry
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    registry, ctx = build_default_registry(), RunContext(repo_root=tmp_path, mode="autonomous")
+    assert registry.dispatch("open_file", {"path": "a.py"}, ctx).ok  # alias -> read
+    unknown = registry.dispatch("print_tree", {"path": ""}, ctx)
+    assert not unknown.ok and "Available tools:" in unknown.output and "search" in unknown.output
+
+
+def test_outline_is_jailed_to_the_repo(tmp_path):
+    from raven.tools.registry import RunContext
+    from raven.tools.symbols import outline
+
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "secret.py").write_text("def hidden():\n    pass\n")
+    result = outline(RunContext(repo_root=tmp_path / "repo", mode="chat"), "../secret.py")
+    assert not result.ok and "escapes" in result.output

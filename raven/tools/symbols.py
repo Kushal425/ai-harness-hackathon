@@ -47,8 +47,11 @@ def symbols(ctx: RunContext, query: str) -> ToolResult:
 
 def outline(ctx: RunContext, path: str) -> ToolResult:
     resolved = (ctx.repo_root / path).resolve()
-    if not resolved.exists():
-        return ToolResult(ok=False, output=f"no such file: {path}")
+    repo_root = ctx.repo_root.resolve()
+    if resolved != repo_root and repo_root not in resolved.parents:
+        return ToolResult(ok=False, output=f"path escapes repo root: {path}")
+    if not resolved.is_file():
+        return ToolResult(ok=False, output=f"not a file: {path}")
     defs = _defs_in_file(resolved)
     if not defs:
         return ToolResult(ok=True, output="(no top-level classes/functions found)")

@@ -203,3 +203,26 @@ def test_second_run_context_contains_lesson_extracted_from_first_run(tmp_path):
     sent_texts = " ".join(m.content for call in gateway2.client.calls for m in call)
     assert "# Lessons" in sent_texts
     assert "average() denominator off-by-one needs careful arithmetic" in sent_texts
+
+
+def test_live_runs_never_write_the_shipped_global_lessons_file(tmp_path, monkeypatch):
+    """A global-scope lesson from a live run goes to the target repo's store;
+    the shipped file is read-only at run time (evals must stay reproducible)."""
+    import raven.memory.lessons as lessons_mod
+    from raven.core.executor import ExecutorResult
+    from raven.core.judge import Verdict
+    from raven.learn.extract_lessons import extract_and_store_lesson
+    from raven.llm.fake import FakeClient
+    from raven.llm.gateway import LLMGateway
+
+    shipped = tmp_path / "shipped_global.jsonl"
+    monkeypatch.setattr(lessons_mod, "GLOBAL_LESSONS_PATH", shipped)
+    reply = '```lesson\n{"trigger": "done with no edits", "insight": "check the diff", "scope": "global"}\n```'
+    extract_and_store_lesson(
+        LLMGateway(FakeClient([reply])), tmp_path, "fix x",
+        ExecutorResult(completed=True, summary="", iterations=1, tool_calls=0),
+        Verdict(False, "changed no files"), None,
+    )
+    assert not shipped.exists()
+    stored = lessons_mod.list_lessons(lessons_mod.repo_lessons_path(tmp_path))
+    assert stored and stored[0]["scope"] == "global"

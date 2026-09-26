@@ -11,7 +11,7 @@ from pathlib import Path
 
 from raven.core.json_utils import parse_json_block
 from raven.llm.protocol import Message
-from raven.memory.lessons import GLOBAL_LESSONS_PATH, Lesson, add_lesson, repo_lessons_path
+from raven.memory.lessons import Lesson, add_lesson, repo_lessons_path
 from raven.prompts import get_prompt
 
 LESSON_EXTRACTION_PROMPT = get_prompt("lesson_extraction_prompt")
@@ -50,6 +50,10 @@ def extract_and_store_lesson(gateway, repo_root: Path, goal: str, executor_resul
         trigger=trigger, insight=insight, action=str(data.get("action", "")).strip(),
         scope=scope, confidence=confidence,
     )
-    store_path = repo_lessons_path(repo_root) if scope == "repo" else GLOBAL_LESSONS_PATH
-    add_lesson(store_path, lesson)
+    # Always the target repo's own store. The shipped global file is
+    # read-only at run time (plan §12.3/§21: learned offline, shipped
+    # frozen) -- writing to it from a live run silently changed every later
+    # run in every repo, evals included. `scope` is kept so an offline
+    # curation step can promote "global" lessons into it deliberately.
+    add_lesson(repo_lessons_path(repo_root), lesson)
     return data

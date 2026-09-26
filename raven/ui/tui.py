@@ -59,6 +59,34 @@ def _top_bar(width: int, repo_root: Path, model: str):
     return bar
 
 
+class _typeahead_hidden:
+    """While a request runs, don't echo keystrokes over the output; they stay
+    buffered and appear in the next prompt instead. No-op off a real TTY."""
+
+    def __enter__(self):
+        self._saved = None
+        try:
+            import sys
+            import termios
+            fd = sys.stdin.fileno()
+            self._saved = (fd, termios.tcgetattr(fd))
+            attrs = termios.tcgetattr(fd)
+            attrs[3] &= ~termios.ECHO  # lflags
+            termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        except Exception:
+            self._saved = None
+        return self
+
+    def __exit__(self, *exc):
+        if self._saved:
+            try:
+                import termios
+                termios.tcsetattr(self._saved[0], termios.TCSANOW, self._saved[1])
+            except Exception:
+                pass
+        return False
+
+
 def _reply_panel(reply: str, command: str | None = None):
     """A Raven reply in a violet frame. Model replies render as Markdown;
     slash-command output is pre-formatted (aligned columns, diffs), so it's
@@ -116,9 +144,10 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
                 pass
 
     def on_event(event: str, data: dict) -> None:
-        if event in ("tool_start", "tool_end"):
-            ok = data.get("ok") if event == "tool_end" else None
-            safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), ok))
+        if event == "tool_end":
+            # one line per call, printed once it's finished (✓ / ✗); a
+            # separate "started" line just doubled every entry
+            safe_print(render_tool_line(data.get("tool", ""), data.get("args", {}), data.get("ok")))
         elif event == "plan_step":
             glyph = {"active": "◉", "done": "✓", "failed": "✗"}.get(data.get("status"), "○")
             safe_print(f"[{theme.ACCENT}]{glyph}[/] [{theme.SECONDARY}]{data.get('id')}[/]  {data.get('action')}")
@@ -202,7 +231,8 @@ def run_tui(config, gateway, repo_root: Path | str = ".") -> int:
 
         run_id_before = session.state.last_result.run_id if session.state.last_result else None
         try:
-            reply = session.handle_input(text)
+            with _typeahead_hidden():
+                reply = session.handle_input(text)
         except KeyboardInterrupt:
             safe_print("Interrupted — rolled back any partial changes from this command.", style=theme.WARNING)
             continue

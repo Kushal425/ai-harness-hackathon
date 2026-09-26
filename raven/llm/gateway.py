@@ -43,13 +43,17 @@ class LLMGateway:
         messages: list[Message],
         stream: bool = False,
         on_token: Callable[[str], None] | None = None,
+        tools: list[dict] | None = None,
     ) -> CompletionResult:
+        """`tools`: optional native tool schemas, passed through to clients
+        that support them (OpenAICompatibleClient); others never see it."""
+        extra = {"tools": tools} if tools else {}
         attempt = 0
         last_exc: Exception | None = None
         while attempt <= self.max_retries:
             try:
                 self.stats.calls += 1
-                result = self.client.complete(messages, stream=stream, on_token=on_token)
+                result = self.client.complete(messages, stream=stream, on_token=on_token, **extra)
                 self.stats.prompt_tokens += result.usage.prompt_tokens
                 self.stats.completion_tokens += result.usage.completion_tokens
                 return result

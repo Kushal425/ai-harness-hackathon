@@ -41,6 +41,28 @@ class Tool:
     fn: Callable[..., ToolResult]
 
 
+# Names models commonly reach for from their training, mapped onto Raven's
+# own tools (an unknown name still gets the list of real tools back).
+TOOL_ALIASES = {
+    "open_file": "read", "read_file": "read", "cat": "read", "view": "read",
+    "grep": "search", "find": "search", "search_code": "search", "search_files": "search", "rg": "search",
+    "run_tests": "tests", "pytest": "tests",
+    "str_replace": "edit", "replace": "edit", "edit_file": "edit",
+    "write_file": "create", "create_file": "create",
+}
+
+
+def _function_schema(name: str, description: str, props: dict, required: list[str]) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {"type": "object", "properties": props, "required": required},
+        },
+    }
+
+
 def shape_text(text: str, max_lines: int = 200) -> str:
     """Truncates long output keeping head+tail, per plan §8.4."""
     lines = text.splitlines()
@@ -72,10 +94,34 @@ class ToolRegistry:
             lines.append(f"- {tool.name}({', '.join(tool.params)}): {tool.description}")
         return "\n".join(lines)
 
+    def schemas(self) -> list[dict]:
+        """OpenAI-style function schemas for native tool calling (plan
+        §8.1), plus `done`, which the executor handles itself."""
+        json_types = {"str": "string", "int": "integer", "bool": "boolean", "float": "number"}
+        out = []
+        for name in self.names():
+            tool = self._tools[name]
+            props, required = {}, []
+            for pname, ptype in tool.params.items():
+                optional = ptype.endswith("?")
+                props[pname] = {"type": json_types.get(ptype.rstrip("?"), "string")}
+                if not optional:
+                    required.append(pname)
+            out.append(_function_schema(tool.name, tool.description, props, required))
+        out.append(_function_schema(
+            "done", "Finish the task. `summary` is your complete final answer / report of what you did.",
+            {"summary": {"type": "string"}}, ["summary"],
+        ))
+        return out
+
     def dispatch(self, name: str, args: dict, ctx: RunContext) -> ToolResult:
-        tool = self.get(name)
+        tool = self.get(TOOL_ALIASES.get(name, name))
         if tool is None:
-            return ToolResult(ok=False, output=f"unknown tool: {name}")
+            # say what does exist -- models (gpt-oss especially) reach for
+            # tool names from their training, e.g. repo_browser.print_tree
+            return ToolResult(
+                ok=False, output=f"unknown tool: {name}. Available tools: {', '.join(self.names())}, done",
+            )
 
         decision = check_policy(ctx.mode, tool.name, tool.permission, args, approve_fn=ctx.approve_fn)
         if decision == PolicyDecision.DENY:

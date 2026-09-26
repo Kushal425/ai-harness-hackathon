@@ -185,7 +185,10 @@ class SessionManager:
         )
         self.state.goal = goal
         self.state.last_result = result
-        self.state.mode = "autonomous"
+        # One-shot: back to chat once the run is reported, so the next
+        # message ("hi", a question) is a conversation, not another task.
+        # A new issue still auto-detects, or use /auto.
+        self.state.mode = "chat"
         return self._format_result(result)
 
     def _format_result(self, result: OrchestratorResult) -> str:

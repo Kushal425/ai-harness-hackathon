@@ -137,10 +137,17 @@ def test_chat_mode_auto_detects_issue_and_runs_autonomous(repo):
         "bug in calc/arithmetic.py's average() function that divides by the "
         "wrong count."
     )
-    session = _session(repo, FIX_SEQUENCE)
+    greeting = '```action\n{"tool": "done", "args": {"summary": "Hello!"}}\n```'
+    lesson = "(no lesson)"  # the run's end-of-run lesson-extraction call
+    session = _session(repo, FIX_SEQUENCE + [lesson, greeting])
     reply = session.handle_input(long_issue)
     assert "switching to autonomous mode" in reply
-    assert session.state.mode == "autonomous"
+    assert session.state.last_result is not None and session.state.last_result.accepted
+    # the run is one-shot: a following "hi" is chat, not a new coding task
+    assert session.state.mode == "chat"
+    run_before = session.state.last_result.run_id
+    assert session.handle_input("hi") == "Hello!"
+    assert session.state.last_result.run_id == run_before
 
 
 def test_chat_mode_read_only_tool_query(repo):

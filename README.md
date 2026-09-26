@@ -22,7 +22,7 @@ make run
 
 In a real terminal this launches the TUI (rich panels, streaming, plan/activity view). Piped input or `TERM=dumb` falls back to a plain REPL automatically — the harness never requires a fancy terminal to work.
 
-`make test` runs the full offline test suite (205 tests, no API key or network — everything is exercised against a scripted `FakeClient`).
+`make test` runs the full offline test suite (210 tests, no API key or network — everything is exercised against a scripted `FakeClient`).
 
 ```bash
 make test               # offline unit + integration tests
@@ -78,7 +78,7 @@ raven/
 
 prompts/base.yaml    every prompt the harness sends to a model, versioned (plan §12.3)
 evals/                tasks/*.yaml · run_evals.py · results/baseline.md
-tests/                 205 offline tests (FakeClient) + tests/fixtures/toy_repo
+tests/                 210 offline tests (FakeClient) + tests/fixtures/toy_repo
 ```
 
 **Orchestrator state machine** (`raven/core/orchestrator.py`):
@@ -174,7 +174,7 @@ Being precise about what's real here, because it's easy to overstate:
 - No live model was available in this development environment — every number above comes from `FakeClient`-scripted runs. The pipeline's *mechanics* are real and tested; its *quality against a real model* is unvalidated until run with one.
 - The eval fixture (`tests/fixtures/toy_repo`) is small and Python-only; language coverage for JS/TS/Go/Java/Rust in `raven/tools/symbols.py` and `raven/repo/digest.py` is minimal (extension-based language guess only).
 - `config.yaml`'s numeric knobs aren't fully wired through to the orchestrator (see Learning & evolution above).
-- Native tool-calling protocol is not implemented — only the text fenced-action-block protocol exists. `llm.tool_protocol: auto` in config is aspirational until a native path is built.
+- Native tool calling is used for the executor loop (tool schemas sent with each request, tool calls converted to the same action path as the text protocol, automatic fallback to text if the endpoint rejects `tools`; `llm.tool_protocol: text` forces text). The one-shot calls (understanding, planner, lessons) still use text/JSON blocks only.
 - `delegated`/`plan_execute` are not the shipped default; see above.
 
 ## Submission checklist (plan §22)

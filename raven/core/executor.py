@@ -61,6 +61,7 @@ def run_single_loop(
         except Exception:
             pass  # a broken renderer must never affect the run
     context_engine = ContextEngine(tool_docs=registry.docs(), half_life=half_life)
+    tool_schemas = registry.schemas()  # native tool calling where the endpoint supports it
     history: list[HistoryEntry] = []
     state = ContextState(
         task_card=goal, digest_summary=digest_summary, plan_text=plan_text,
@@ -88,7 +89,7 @@ def run_single_loop(
             messages = context_engine.assemble(state, turn)
 
             try:
-                completion = gateway.complete(messages)
+                completion = gateway.complete(messages, tools=tool_schemas)
             except Exception as exc:
                 checkpoints.restore_to_clean()
                 return ExecutorResult(
