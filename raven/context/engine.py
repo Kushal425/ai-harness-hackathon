@@ -23,6 +23,16 @@ reply with exactly one ```action fenced block. When the task is complete,
 call the `done` tool: {"tool": "done", "args": {"summary": "what you did"}}.
 """
 
+ANSWER_MODE_INSTRUCTIONS = """\
+This is a conversational question, not a code-editing task. The `summary`
+field of `done` is shown to the user VERBATIM as your entire reply — it must
+be your complete, self-contained answer, not a short recap of actions taken.
+If you already know the answer or don't need to look at any files, call
+`done` immediately on your first turn with the full answer in `summary`.
+Only use read-only tools first if you genuinely need to check the repository
+to answer accurately.
+"""
+
 
 @dataclass
 class ContextState:
@@ -31,6 +41,7 @@ class ContextState:
     plan_text: str = ""
     history: list[HistoryEntry] = field(default_factory=list)
     half_life: int = 3
+    answer_mode: bool = False
 
 
 class ContextEngine:
@@ -40,6 +51,8 @@ class ContextEngine:
 
     def assemble(self, state: ContextState, current_turn: int) -> list[Message]:
         system_text = f"{PROTOCOL_INSTRUCTIONS}\nAvailable tools:\n{self.tool_docs}"
+        if state.answer_mode:
+            system_text += f"\n{ANSWER_MODE_INSTRUCTIONS}"
 
         sections = [f"# Task\n{state.task_card}"]
         if state.plan_text:

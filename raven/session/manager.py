@@ -3,11 +3,11 @@ history, and the active checkpoint/plan/result state. Both the plain REPL
 and the TUI are thin views over this — slash-command behaviour must be
 identical in either, so it lives here exactly once.
 
-# PLAN-DECISION: /act does not replay a frozen plan object. `run_orchestrator`
-# always plans fresh inside its plan_execute EXECUTE stage (there's no plan-
-# injection hook, and adding one is more invasive than Phase 2's budget
-# allows). /plan's stored Plan is for the user to *review* before committing;
-# /act re-runs understand+plan+execute against the same stored goal text.
+/act reuses the exact Understanding/Plan objects /plan already computed and
+showed the user (passed through to run_orchestrator) rather than
+recomputing them — what you approved is what runs. Only a REPLAN (the
+Judge rejects the first pass) calls make_plan() again, since the approved
+plan demonstrably didn't work. See raven/core/orchestrator.py.
 """
 
 from __future__ import annotations
@@ -286,10 +286,16 @@ class SessionManager:
             digest_summary = build_digest(self.state.repo_root).summary()
             result = run_single_loop(
                 self.gateway, registry, ctx, checkpoints, goal=text,
-                digest_summary=digest_summary, max_iterations=6,
+                digest_summary=digest_summary, max_iterations=6, answer_mode=True,
             )
             if result.completed and result.summary:
                 return result.summary
+            # The model didn't call done() (e.g. it just replied in plain
+            # prose without an action block — common for casual questions).
+            # Use its own raw words rather than firing a second, tool-blind
+            # call that has no idea Raven can read the repo at all.
+            if result.last_raw_text:
+                return result.last_raw_text
         except Exception:
             pass  # fall through to a plain reply — chat must never hard-fail
 
