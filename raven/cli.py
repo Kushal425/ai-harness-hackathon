@@ -20,7 +20,7 @@ from raven.ui.repl import run_piped, run_repl
 from raven.ui.tui import rich_available, run_tui, should_use_tui
 
 
-def run_interactive(config, gateway, repo_root: str) -> int:
+def run_interactive(config, gateway, repo_root: Path) -> int:
     """Picks the TUI or the plain REPL per config `ui.tui` (plan §5.2).
     Any failure launching or running the TUI falls back to the plain REPL
     rather than crashing — the harness must always work in a plain
@@ -101,14 +101,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.issue_file:
         issue_text = Path(args.issue_file).read_text().strip()
 
+    # Resolve once, here, to an absolute path -- args.repo defaults to "."
+    # and every caller must agree on what that means (relative to the cwd
+    # this process actually started in). Resolving late/differently per
+    # code path is what caused the TUI banner to show the literal string
+    # "." instead of confirming which directory it's really targeting.
+    repo_root = Path(args.repo).resolve()
+
     try:
         if issue_text:
-            return run_autonomous(config, gateway, Path(args.repo).resolve(), issue_text, args.strategy)
+            return run_autonomous(config, gateway, repo_root, issue_text, args.strategy)
         if sys.stdin.isatty():
-            return run_interactive(config, gateway, args.repo)
+            return run_interactive(config, gateway, repo_root)
         piped_text = sys.stdin.read().strip()
         if not piped_text:
-            return run_interactive(config, gateway, args.repo)
+            return run_interactive(config, gateway, repo_root)
         return run_piped(config, gateway, piped_text)
     finally:
         gateway.close()
