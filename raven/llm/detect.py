@@ -19,27 +19,37 @@ RAVEN_BASE_URL / RAVEN_MODEL / RAVEN_PROVIDER override detection.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
+_QWEN_MODELS = ["qwen3-coder-plus", "qwen3.8-max", "qwen3.7-max", "qwen3-max", "qwen3.7-plus", "qwen-plus",
+                "qwen-max", "qwen3-coder-flash", "qwen3.8-flash", "qwen-flash", "qwen-turbo"]
+_QWEN_EXTRA = {"enable_thinking": False}  # DashScope: required for non-streaming calls to thinking models
 DEFAULT_PROVIDERS = [
     {"name": "deepseek", "base_url": "https://api.deepseek.com/v1",
-     "models": ["deepseek-chat", "deepseek-v3", "deepseek-coder"]},
+     "models": ["deepseek-v4-pro", "deepseek-flash", "deepseek-chat", "deepseek-v3"],
+     "extra_body": {"thinking": {"type": "disabled"}}},
     {"name": "qwen", "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-     "models": ["qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-plus", "qwen-max", "qwen-turbo"]},
+     "models": _QWEN_MODELS, "extra_body": _QWEN_EXTRA},
+    {"name": "qwen-us", "base_url": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+     "models": _QWEN_MODELS, "extra_body": _QWEN_EXTRA},
     {"name": "qwen-cn", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-     "models": ["qwen3-coder-plus", "qwen3-coder-flash", "qwen-coder-plus", "qwen-plus", "qwen-max", "qwen-turbo"]},
+     "models": _QWEN_MODELS, "extra_body": _QWEN_EXTRA},
     {"name": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key_prefix": "sk-or-",
-     "models": ["qwen/qwen3-coder", "deepseek/deepseek-chat-v3.1", "deepseek/deepseek-chat"]},
+     "models": ["qwen/qwen3-coder", "deepseek/deepseek-v4-pro", "deepseek/deepseek-chat-v3.1"]},
     {"name": "groq", "base_url": "https://api.groq.com/openai/v1", "key_prefix": "gsk_",
      "models": ["qwen/qwen3-32b", "openai/gpt-oss-20b"]},
 ]
-# never pick these for code work
+# never pick these for code work: non-text models, reasoning-only models, and
+# open-source Qwen3 sizes (qwen3-32b, qwen3-235b-a22b...) that DashScope only
+# serves as streams
 _EXCLUDE = re.compile(r"(vl|vision|embed|audio|tts|asr|speech|image|ocr|rerank|moderation|guard|omni|"
-                      r"reasoner|math|realtime|transcri|whisper|dall|search)", re.I)
-_PREFER = [re.compile(p, re.I) for p in (r"coder", r"deepseek-(chat|v\d)", r"qwen3", r"qwen.*(plus|max)",
-                                         r"chat", r"instruct")]
+                      r"reasoner|math|realtime|transcri|whisper|dall|search|livetranslate|"
+                      r"-\d+(\.\d+)?b\b|-a\d+b\b)", re.I)
+# best first: coder models, then flagship/pro, then plus, then small/fast
+_PREFER = [re.compile(p, re.I) for p in (r"coder", r"(max|pro)\b", r"deepseek-v\d", r"plus", r"deepseek-(chat|flash)",
+                                         r"chat|instruct", r"flash|turbo")]
 
 
 class DetectionError(RuntimeError):
@@ -52,6 +62,7 @@ class Detected:
     base_url: str
     model: str
     listed: int = 0          # how many models the key can see there
+    extra_body: dict = field(default_factory=dict)  # provider-specific request fields
 
 
 def choose_model(available: list[str], preferred: list[str]) -> str | None:
@@ -97,7 +108,7 @@ def detect(api_key: str, providers: list[dict] | None = None, forced: str | None
             # key may be fine but the listing unavailable: trust the preferred model
             tried.append(f"{p['name']}: /models returned {resp.status_code}")
             if resp.status_code in (404, 405) and p.get("models"):
-                return Detected(p["name"], url, p["models"][0])
+                return Detected(p["name"], url, p["models"][0], 0, dict(p.get("extra_body") or {}))
             continue
         try:
             data = resp.json()
@@ -106,7 +117,7 @@ def detect(api_key: str, providers: list[dict] | None = None, forced: str | None
             ids = []
         model = choose_model(ids, p.get("models", [])) if ids else (p.get("models") or [None])[0]
         if model:
-            return Detected(p["name"], url, model, len(ids))
+            return Detected(p["name"], url, model, len(ids), dict(p.get("extra_body") or {}))
         tried.append(f"{p['name']}: key accepted but no usable chat model listed")
     raise DetectionError("could not find a provider that accepts AI_API_KEY (" + "; ".join(tried or ["none tried"]) +
                          "). Set RAVEN_BASE_URL and RAVEN_MODEL explicitly.")

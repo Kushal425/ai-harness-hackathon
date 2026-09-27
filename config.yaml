@@ -12,20 +12,28 @@ llm:
   provider: openai_compatible
   base_url: auto
   model: auto
-  providers:
+  providers:            # tried in this order; model = first listed one the key can access
     - name: deepseek
       base_url: https://api.deepseek.com/v1
-      models: [deepseek-chat, deepseek-v3, deepseek-coder]
+      models: [deepseek-v4-pro, deepseek-flash, deepseek-chat, deepseek-v3]
+      extra_body: {thinking: {type: disabled}}   # fast, direct answers
     - name: qwen          # Alibaba Model Studio (DashScope), international
       base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-      models: [qwen3-coder-plus, qwen3-coder-flash, qwen-coder-plus, qwen-plus, qwen-max, qwen-turbo]
-    - name: qwen-cn       # DashScope, mainland China
+      models: &qwen_models [qwen3-coder-plus, qwen3.8-max, qwen3.7-max, qwen3-max, qwen3.7-plus, qwen-plus,
+                            qwen-max, qwen3-coder-flash, qwen3.8-flash, qwen-flash, qwen-turbo]
+      extra_body: &qwen_extra {enable_thinking: false}   # required for non-streaming calls to thinking models
+    - name: qwen-us
+      base_url: https://dashscope-us.aliyuncs.com/compatible-mode/v1
+      models: *qwen_models
+      extra_body: *qwen_extra
+    - name: qwen-cn
       base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      models: [qwen3-coder-plus, qwen3-coder-flash, qwen-coder-plus, qwen-plus, qwen-max, qwen-turbo]
+      models: *qwen_models
+      extra_body: *qwen_extra
     - name: openrouter    # only for keys starting sk-or-
       base_url: https://openrouter.ai/api/v1
       key_prefix: sk-or-
-      models: [qwen/qwen3-coder, deepseek/deepseek-chat-v3.1, deepseek/deepseek-chat]
+      models: [qwen/qwen3-coder, deepseek/deepseek-v4-pro, deepseek/deepseek-chat-v3.1]
     - name: groq          # only for keys starting gsk_
       base_url: https://api.groq.com/openai/v1
       key_prefix: gsk_
@@ -34,7 +42,7 @@ llm:
   seed: 7                 # reproducibility: sent to the endpoint, and seeds retry jitter
   max_output_tokens: 2048
   tool_protocol: auto     # auto (native tool calls, text fallback) | text
-  request_timeout_s: 60
+  request_timeout_s: 120  # large DeepSeek/Qwen models can take >60s on long prompts under load
   max_retries: 5
 
 executor:

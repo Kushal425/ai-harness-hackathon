@@ -34,12 +34,17 @@ class OpenAICompatibleClient:
         max_output_tokens: int = 2048,
         timeout_s: int = 60,
         tool_protocol: str = "auto",
+        extra_body: dict | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.temperature = temperature
         self.seed = seed
         self.max_output_tokens = max_output_tokens
+        # provider-specific request fields (e.g. DeepSeek thinking off, DashScope
+        # enable_thinking=false); dropped automatically if an endpoint rejects them
+        self.extra_body = dict(extra_body or {})
+        self.send_tool_choice = True
         # None = not yet known; False once the endpoint rejected `tools`
         self.native_tools: bool | None = False if tool_protocol == "text" else None
         self._client = httpx.Client(
@@ -62,8 +67,26 @@ class OpenAICompatibleClient:
             payload["seed"] = self.seed
         if tools:
             payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+            if self.send_tool_choice:
+                payload["tool_choice"] = "auto"
+        payload.update(self.extra_body)
         return payload
+
+    def _adapt_to_400(self, message: str, sent_tools: bool) -> bool:
+        """Adjust the request for a known endpoint quirk named in a 400;
+        True = retry. Each adjustment happens at most once per session."""
+        if "enable_thinking" in message and self.extra_body.get("enable_thinking") is not False:
+            self.extra_body["enable_thinking"] = False  # DashScope thinking models, non-streaming
+            return True
+        rejected = [k for k in self.extra_body if k.lower() in message]
+        if rejected:
+            for k in rejected:
+                self.extra_body.pop(k)  # the endpoint doesn't know this provider-specific field
+            return True
+        if sent_tools and "tool_choice" in message and self.send_tool_choice:
+            self.send_tool_choice = False  # keep native tools, just without tool_choice
+            return True
+        return False
 
     @staticmethod
     def _error_of(resp: httpx.Response) -> dict:
@@ -105,6 +128,9 @@ class OpenAICompatibleClient:
                     raw={"recovered_from": "tool_use_failed"},
                 )
             message = str(err.get("message", "")).lower()
+            retry = self._adapt_to_400(message, bool(send_tools))
+            if retry:
+                return self.complete(messages, stream=False, on_token=None, tools=tools, temperature=temperature)
             if "seed" in message and self.seed is not None:
                 # an endpoint that rejects the seed parameter: drop it for the session
                 self.seed = None
@@ -128,6 +154,9 @@ class OpenAICompatibleClient:
         data = resp.json()
         message = data["choices"][0]["message"]
         text = message.get("content") or ""
+        if not text.strip() and not message.get("tool_calls") and message.get("reasoning_content"):
+            # a thinking model that put everything in its reasoning: better than an empty reply
+            text = message["reasoning_content"]
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
             # one action per turn (the executor's contract): the first call

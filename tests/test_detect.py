@@ -39,11 +39,22 @@ def test_qwen_key_falls_through_to_dashscope_and_picks_a_coder_model():
 
 
 def test_unknown_model_names_are_ranked_not_guessed():
-    # none of the preferred names exist: pick the best usable model the key can see
-    assert choose_model(["qwen-vl-plus", "text-embedding-v4", "qwen2.5-72b-instruct", "qwen3-235b-a22b"],
-                        ["qwen3-coder-plus"]) == "qwen3-235b-a22b"
-    assert choose_model(["deepseek-reasoner", "deepseek-v4-chat"], []) == "deepseek-v4-chat"
-    assert choose_model(["text-embedding-v3", "qwen-vl-max"], []) is None
+    # none of the preferred names exist: pick the best usable model the key can see.
+    # Open-source sizes (qwen3-235b-a22b, qwen3-32b) are stream-only on DashScope: never picked.
+    assert choose_model(["qwen-vl-plus", "text-embedding-v4", "qwen3-235b-a22b", "qwen3-32b", "qwen3.9-max",
+                         "qwen3.9-flash"], ["qwen3-coder-plus"]) == "qwen3.9-max"
+    assert choose_model(["deepseek-reasoner", "deepseek-v5-pro", "deepseek-flash"], []) == "deepseek-v5-pro"
+    assert choose_model(["text-embedding-v3", "qwen-vl-max", "qwen3-32b"], []) is None
+
+
+def test_current_official_model_lists_resolve_to_a_strong_non_thinking_model():
+    # the model ids the providers' own docs list as of Sept 2026
+    from raven.llm.detect import DEFAULT_PROVIDERS as P
+    assert choose_model(["deepseek-flash", "deepseek-v4-pro"], P[0]["models"]) == "deepseek-v4-pro"
+    assert choose_model(["qwen3.8-max", "qwen3.8-flash", "qwen-plus", "qwen-turbo", "qwen3-32b"],
+                        P[1]["models"]) == "qwen3.8-max"
+    assert P[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert all(p["extra_body"] == {"enable_thinking": False} for p in P if p["name"].startswith("qwen"))
 
 
 def test_prefixed_keys_only_go_to_their_own_provider():
@@ -124,3 +135,70 @@ def test_endpoint_rejecting_seed_drops_it():
     client = _client(handler)
     assert client.complete([]).text == "ok" and client.seed is None
     assert client.complete([]).text == "ok" and len(bodies) == 3  # second call sends no seed at all
+
+
+def _dashscope_like(handler_log, strict_tool_choice=True, need_thinking_off=True):
+    def handler(request):
+        body = json.loads(request.content)
+        handler_log.append(body)
+        if need_thinking_off and body.get("enable_thinking") is not False:
+            return httpx.Response(400, json={"error": {"message":
+                "parameter.enable_thinking must be set to false for non-streaming calls"}})
+        if strict_tool_choice and "tool_choice" in body:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: tool_choice"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+    return handler
+
+
+def test_dashscope_quirks_are_handled_without_losing_native_tools():
+    from raven.llm.providers import OpenAICompatibleClient
+
+    log = []
+    client = OpenAICompatibleClient(base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                                    api_key="k", model="qwen3.8-max")   # no extra_body configured at all
+    client._client = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(_dashscope_like(log)))
+    assert client.complete([], tools=[{"type": "function"}]).text == "ok"
+    final = log[-1]
+    assert final["enable_thinking"] is False and "tools" in final and "tool_choice" not in final
+    assert client.native_tools is True
+
+
+def test_unknown_provider_field_is_dropped_not_fatal():
+    from raven.llm.providers import OpenAICompatibleClient
+
+    log = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        log.append(body)
+        if "thinking" in body:
+            return httpx.Response(400, json={"error": {"message": "Unrecognized request argument: thinking"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = OpenAICompatibleClient(base_url="https://api.deepseek.com/v1", api_key="k", model="deepseek-chat",
+                                    extra_body={"thinking": {"type": "disabled"}})
+    client._client = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
+    assert client.complete([]).text == "ok" and "thinking" not in log[-1]
+
+
+def test_reasoning_only_reply_is_not_an_empty_answer():
+    from raven.llm.providers import OpenAICompatibleClient
+
+    client = OpenAICompatibleClient(base_url="https://api.deepseek.com/v1", api_key="k", model="deepseek-v4-pro")
+    client._client = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(lambda r: httpx.Response(
+        200, json={"choices": [{"message": {"content": None, "reasoning_content": '{"choice": "A"}'}}]})))
+    assert client.complete([]).text == '{"choice": "A"}'
+
+
+def test_explicit_known_endpoint_still_gets_its_quirk_settings(monkeypatch):
+    monkeypatch.setenv("RAVEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.setenv("RAVEN_MODEL", "qwen-plus")
+    monkeypatch.setenv("AI_API_KEY", "sk-x")
+    config = resolve_llm(load_config())
+    assert config.llm.extra_body == {"enable_thinking": False}
+
+
+def test_config_yaml_and_code_defaults_agree():
+    from raven.llm.detect import DEFAULT_PROVIDERS
+
+    assert load_config().llm.providers == DEFAULT_PROVIDERS

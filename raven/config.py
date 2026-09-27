@@ -27,7 +27,8 @@ class LLMConfig:
     max_retries: int = 5
     api_key: str = ""
     providers: list = field(default_factory=list)  # candidates for auto-detection, in order
-    detected: str = ""                              # "deepseek-chat via api.deepseek.com (auto-detected)"
+    detected: str = ""                              # "deepseek-v4-pro via api.deepseek.com (auto-detected)"
+    extra_body: dict = field(default_factory=dict)  # provider-specific request fields (e.g. thinking off)
 
 
 @dataclass
@@ -127,6 +128,11 @@ def resolve_llm(config: RavenConfig, transport=None) -> RavenConfig:
     from raven.llm.detect import DEFAULT_PROVIDERS, detect
 
     llm = config.llm
+    if llm.base_url != "auto" and not llm.extra_body:
+        known = next((p for p in (llm.providers or DEFAULT_PROVIDERS)
+                      if p["base_url"].rstrip("/") == llm.base_url.rstrip("/")), None)
+        if known:
+            llm.extra_body = dict(known.get("extra_body") or {})
     if not llm.api_key or (llm.base_url != "auto" and llm.model != "auto"):
         return config
     providers = llm.providers or DEFAULT_PROVIDERS
@@ -136,5 +142,6 @@ def resolve_llm(config: RavenConfig, transport=None) -> RavenConfig:
     if llm.model != "auto":
         found.model = llm.model
     llm.base_url, llm.model = found.base_url, found.model
+    llm.extra_body = found.extra_body
     llm.detected = f"{found.model} via {urlparse(found.base_url).netloc} (auto-detected, provider {found.provider})"
     return config
