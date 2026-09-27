@@ -1,284 +1,333 @@
 # Raven
 
-An autonomous coding-agent harness built for the **LCC × DevClub AI Coding Harness Hackathon 2026**, designed around one idea:
+**An autonomous coding-agent harness that proves its fixes instead of claiming them.**
+Built for the **LCC × DevClub AI Coding Harness Hackathon 2026**.
 
-> **Don't ask the model whether a patch is right. Generate a few candidate fixes, run them against each other, and spend the model's judgement only where they disagree — on the single input that separates them, as a concrete multiple-choice question backed by evidence from the repository.**
+Give Raven a repository and an issue (typed, pasted, piped, or a GitHub issue URL). It finds the relevant code, reproduces the bug, writes several candidate fixes, **runs them against each other to find where they disagree**, settles that disagreement with evidence from the repository, and applies the fix that holds up — with a report showing exactly why.
 
-We call it **Crux**. `make demo` shows it in 30 seconds, offline:
+> **Same model. Different harness.** Raven's edge doesn't come from a bigger model or more calls. It comes from spending the model's judgement only where executed evidence says it's needed.
+
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [The idea: Crux](#the-idea-crux)
+- [Key features](#key-features)
+- [How a task runs](#how-a-task-runs)
+- [Architecture](#architecture)
+- [Model: DeepSeek & Qwen](#model-deepseek--qwen)
+- [Using Raven](#using-raven)
+- [Results](#results)
+- [Submission guideline compliance](#submission-guideline-compliance)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Testing](#testing)
+- [Limitations](#limitations)
+
+---
+
+## Quick start
+
+This is exactly the organisers' standard evaluation procedure:
+
+```bash
+git clone https://github.com/Kushal425/ai-harness-hackathon.git
+cd ai-harness-hackathon
+export AI_API_KEY="<your DeepSeek or Qwen API key>"
+make setup
+make run
+```
+
+- `make setup` creates a virtual environment and installs everything (Python 3.9+).
+- `make run` opens the terminal UI. Because it starts inside Raven's own folder, it asks **which repository to work on** — type a path, or a GitHub repo (`owner/name`), which is cloned into an isolated workspace.
+- Then give it the issue — paste it into the chat. Any of these also work:
+
+```bash
+make run ARGS="--issue https://github.com/owner/repo/issues/42"            # fetches the repo itself
+echo "clamp(5, 0, 10) returns 0 instead of 5" | make run ARGS="--repo /path/to/repo"
+make run ARGS="--repo /path/to/repo --issue 'average() is off by one'"
+RAVEN_REPO=/path/to/repo RAVEN_ISSUE="..." make run
+```
+
+Other commands:
+
+```bash
+make test     # 287 offline tests — no API key or network needed
+make demo     # 30-second offline demo of the core idea (scripted model)
+make eval     # offline eval suite (16 tasks)
+make clean    # remove generated artefacts
+```
+
+A full walkthrough, including testing with a **free local model** (Ollama), is in [TESTING.md](TESTING.md).
+
+---
+
+## The idea: Crux
+
+Most coding agents run one long loop: read files, edit, run tests, repeat, then trust whatever the last edit left. Raven does something different:
+
+> **Don't ask the model whether a patch is right. Generate a few candidate fixes, run them against each other, and ask the model one concrete question — only about the single input where the candidates disagree — backed by evidence from the repository.**
+
+`make demo` shows it (the scripted model gives the same result every time, no API key needed):
 
 ```
 ◆ probe    reproduced: chunk([1, 2, 3, 4, 5], 2) -> => [[1, 2], [3, 4]]
    ✓ c1 alive (2 changed lines) — stop the range at len(items)
    ✓ c2 alive (3 changed lines) — ceiling-divide to count chunks
    ✓ c3 alive (5 changed lines) — loop to the end
-◆ cluster  3 surviving candidates -> 2 behaviour cluster(s) over 13 inputs
+◆ cluster  3 surviving candidates -> 2 behaviour cluster(s) over 11 inputs
 ✦ crux     chunk([], 2)   [c1, c3] => []  vs  [c2] => [[]]
 ⚖ verdict  A: window() documents that empty input yields no windows; tests assert window([], 2) == []
 ★ select   selected c1 (2 changed lines)
 
 hidden grader test (never shown to Raven):
   selected c1: PASS
-  rejected c2: FAIL  (passed every visible test — only the crux caught it)
+  rejected c2: FAIL   (passed every visible test — only the crux caught it)
 ```
 
-## Why this design
+All three fixes pass the visible tests and the issue's own example. Only one input tells them apart, and Raven finds it automatically, asks one question about it, and answers it from the repository's own code and tests.
 
-Every choice below comes from a measured result, not a hunch:
+**Why this works** — every design choice comes from published results:
 
-| Finding | Source | What Raven does about it |
-|---|---|---|
-| 60–69% of agent failures reached and edited the *correct* function, then submitted a wrong patch; agents wrote gold-identical patches and later overwrote them | [Coherence Collapse](https://arxiv.org/abs/2603.24631) | Candidates are **immutable snapshots**, selected by evidence — a good edit is never overwritten |
-| Patch-overfitting detectors lose to *random selection* in 71–96% of cases | [arXiv 2603.11262](https://arxiv.org/abs/2603.11262) | Selection uses **executed behaviour** only, never a static or learned judgement |
-| Generated reproduction tests: 213/300 reproduced the bug, only 94 correctly verified the fix | [Agentless](https://arxiv.org/html/2407.01489) | The model's reproduction is split into **observation** (measured) and **expectation** (a belief, dropped if not a valid expression) |
-| 77% of SWE-bench Verified instances admit a wrong patch that passes the tests; stronger tests cut top agents by 4–9 pts | [Probe to Generate](https://arxiv.org/abs/2604.01518) | Candidates act as each other's **mutants**; Crux finds the input that exposes the wrong one |
-| Inputs are cheap, oracles (assertions) are the hard part | [FIXCHECK, ICST'24](https://conf.researchr.org/details/icst-2024/icst-2024-papers/17/Improving-Patch-Correctness-Analysis-via-Random-Testing-and-Large-Language-Models) | Oracle queries only where candidates **disagree**: usually 0–1 per task |
-| Harness variance is 7.8× model variance; 22/81 runs killed at the time limit already had a passing patch | [Binding Constraint](https://arxiv.org/abs/2605.23950), [Harness isolation](https://arxiv.org/abs/2609.11987) | Deterministic tooling does the work; the run keeps its **best patch so far** |
-| Qwen3-235B produces a successfully submitted patch in only 26.5% of attempts; DeepSeek caches prompt prefixes at ~1/10 the price | [SWE-Compass](https://arxiv.org/pdf/2511.05459), [DeepSeek](https://api-docs.deepseek.com/news/news0802/) | **One-shot structured calls** (no long tool loop on the main path), deterministic edit application, **stable prompt prefixes** |
+| Finding | What Raven does |
+|---|---|
+| Agents often reach the *correct* code and then overwrite it with a wrong patch (60–69% of failures, *Coherence Collapse*) | Each candidate fix is an immutable snapshot; the best one is selected, never overwritten |
+| Tools that guess which patch is correct lose to random choice in 71–96% of cases (arXiv 2603.11262) | Selection is based only on **executed behaviour** |
+| Model-written reproduction tests are often wrong (Agentless: 213/300 reproduced the bug, only 94 verified the fix) | The probe separates what the code *does* (measured) from what it *should* do (the model's belief, checked) |
+| 77% of SWE-bench tasks admit a wrong patch that passes the visible tests (*Probe to Generate*) | Candidates act as each other's mutants; the crux input exposes the wrong one |
+| The harness matters more than the model (harness variance 7.8× model variance) | Deterministic tools do the work; the model answers focused, one-shot questions |
+
+---
+
+## Key features
+
+**Unique**
+- **Crux: disagreement-driven patch selection** — the core idea above.
+- **Evidence certificate** — every run writes a report showing each candidate, why it survived or died, the crux question, the evidence used, and the final patch.
+- **Behaviour guard** — a fix is rejected if it starts crashing on inputs the original code handled (checked on the issue's example, automatic variants of it, and calls taken from the repo's own tests).
+- **Honest verdicts** — Raven never reports success without evidence; a run with no tests to check against is labelled `RESOLVED (unverified)`.
+
+**Coding-agent capabilities** (the problem statement's requirements)
+
+| Requirement | How Raven does it |
+|---|---|
+| Understand the task | Extracts identifiers, stack frames, file paths and expected behaviour from the issue |
+| Navigate the repository | A ranked code map (function index + import graph), so no blind file reading |
+| Use tools intelligently | One-shot structured calls on the main path; a hardened agent loop with native tool calling as fallback |
+| Manage context | Only the relevant functions are shown; stable prompt prefixes for provider caching |
+| Orchestrate model calls | A fixed pipeline: ~6 targeted calls per issue instead of a 20–30 call loop |
+| Recover from failures | Diagnoses *why* a round failed (wrong location, broken tests, bad edit, new crash) and adapts; falls back to the agent loop; always keeps the best fix so far |
+| Correct, verified changes | Reproduction probe, targeted regression tests, crux adjudication, behaviour guard |
+| Efficient use of resources | Enforced token and time budgets; adaptive number of candidates; early stop when candidates agree |
+
+**Everything else**
+- **Terminal UI** — a live view of the agent working: a status spinner, every code change typed out as a coloured diff, and the Crux steps as they happen.
+- **GitHub integration** — sign in, browse your repositories, pick an issue, and run the agent on it in an isolated git worktree (nothing is ever pushed).
+- **DeepSeek / Qwen auto-detection** — only `AI_API_KEY` is needed; Raven finds the provider and model.
+- **Works everywhere** — falls back to a plain text interface when the terminal can't show the UI; piped input gives a clean result block.
+
+---
 
 ## How a task runs
 
 ```
-intake + ranked repo map (no model) → LOCALIZE (1 call) → PROBE (1 call; run on the original code)
-→ CANDIDATES (3 calls, in parallel, shared cached prefix) → EXECUTE each: probe + targeted tests (no model)
-→ CRUX: run survivors on the issue's example, type-aware variants of it, and calls harvested from the
-  repo's tests; cluster by behaviour (no model) → ADJUDICATE the most informative disagreement (0–2 small calls)
-→ SELECT (largest surviving cluster, smallest diff) → APPLY + VALIDATE → certificate
+issue ──► issue card + ranked code map ──► LOCALIZE ──► PROBE ──► CANDIDATES (3, in parallel)
+          (no model)                      (1 call)    (1 call)   (3 calls)
+                                                                      │
+                     ┌────────────────────────────────────────────────┘
+                     ▼
+          EXECUTE each candidate: probe + targeted tests + behaviour guard   (no model)
+                     │
+      no survivor? ──┴──► diagnose (wrong place? broke tests? crashed?) ──► one more round
+                     │
+                     ▼
+          CRUX: cluster survivors by behaviour ──► ask about the one input that separates them
+                     │                               (0–2 small calls)
+                     ▼
+          SELECT ──► APPLY ──► VALIDATE ──► report + certificate
 ```
 
-- **Typical cost:** 6 model calls. The scripted demo uses about 2.8k tokens; live use is expected in the tens of thousands, against 15–30 full-context calls for a ReAct loop.
-- **If a round fails,** a deterministic diagnosis — edit didn't apply / behaviour unchanged (wrong location → next-ranked functions) / broke tests / missed the expectation — becomes targeted feedback for one more round, not a restart.
-- **If Crux can't produce a surviving fix** (or the repo has no Python to localize), the ReAct agent loop takes over with Crux's findings and the remaining budget; failing that, the best candidate so far is kept, labelled partial.
-- **Every run writes a Crux ledger** to `.raven/runs/<id>/report.md`: locations, probe before/after, every candidate and why it lived or died, the behaviour clusters, each crux with its options, verdict and evidence, the patch, and model usage by stage.
+If Crux can't produce a fix (for example, the repository isn't Python), the agent loop takes over with everything Crux learned. If that also fails, the best candidate so far is kept, labelled *partial*.
 
-**Honest limits.** If every candidate shares the same wrong belief, there is nothing to disagree about; the certificate then says "unanimous", not "proven". Diversity comes from different location hypotheses and framings, not only temperature. Crux executes Python; other languages go straight to the agent loop.
+A typical solved issue costs about **6 model calls**.
 
-## Quick start
-
-```bash
-git clone <this repo> && cd <this repo>
-export AI_API_KEY="<your-api-key>"
-make setup
-make run                                        # TUI; it asks which repository to work on
-```
-
-Because `make run` starts inside Raven's own checkout, Raven never assumes the current directory is the target: it asks for a path (or a git URL, which it clones into `workspaces/`). To skip the question, name the repository up front, any one of:
-
-```bash
-make run ARGS="--repo /path/to/target-repo"
-export RAVEN_REPO=/path/to/target-repo          # then: make run
-```
-
-**To test it the way the evaluators will** (including with a free local model), follow [TESTING.md](TESTING.md).
-
-In a real terminal this launches the TUI (rich panels, live tool stream). `TERM=dumb` or a failing TUI falls back to a plain REPL automatically.
-
-`make test` runs the full offline test suite (258 tests; no API key or network — the model is a scripted `FakeClient`).
-
-```bash
-make test               # offline unit + integration tests
-make eval               # eval harness (toy_repo + crux_demo fixtures) — see Results below
-make demo               # the Crux moment, offline, with the model's replies scripted
-```
-
-**Model.** The evaluators provide only `AI_API_KEY` (a DeepSeek or Qwen key; the model names aren't announced). With `base_url: auto` / `model: auto` in `config.yaml`, Raven detects the provider that accepts the key — a free `GET /models` on each listed endpoint (DeepSeek, then Alibaba DashScope international and mainland) — and uses the first of that provider's preferred models the key can access, otherwise the best chat/coder model it lists (never vision, embedding, audio or reasoning-only models). The choice is printed at startup (`[raven] model: deepseek-chat via api.deepseek.com (auto-detected)`). To pin it, set `RAVEN_BASE_URL` + `RAVEN_MODEL`, or `RAVEN_PROVIDER=deepseek|qwen`, or edit `config.yaml`. Note: an ambiguous `sk-…` key is offered to DeepSeek before DashScope; keys with a provider-specific prefix (`sk-or-`, `gsk_`) only ever go to their own provider. The key is otherwise read only from `AI_API_KEY`, and a scored run without it stops with an error instead of quietly using the offline fake model.
-
-## Supplying an issue
-
-Every non-interactive path runs the same autonomous pipeline (understand → reproduce → fix → verify → report) and ends with a delimited `===== RAVEN RESULT =====` block:
-
-```bash
-# 1. Piped stdin
-echo "average() returns 3.0 for [2,4,6]; expected 4" | make run ARGS="--repo /path/to/repo"
-
-# 2. Environment variables
-RAVEN_REPO=/path/to/repo RAVEN_ISSUE="average() is off by one" make run
-
-# 3. Flags
-make run ARGS="--repo /path/to/repo --issue 'average() is off by one'"
-make run ARGS="--repo /path/to/repo --issue-file issue.txt"
-
-# 4. Pasted into the TUI — issue-like text (long text, stack traces,
-#    "steps to reproduce", a GitHub issue URL) is auto-detected and run
-#    autonomously; afterwards the session returns to chat. /auto <task> forces it.
-```
-
-A GitHub issue URL anywhere in the task is expanded with the issue's title and body (fetched by the harness; `GITHUB_TOKEN` is used if set). `--repo` also accepts a git URL, which is cloned. `--strategy` overrides `executor.strategy` (`single_loop` | `plan_execute` | `delegated`) for one run.
-
-## GitHub
-
-GitHub is Raven's input layer — the same Crux pipeline runs on the result. The flow is **connect → choose repo → choose issue → run**, entirely inside the TUI:
-
-```
-/gh login                 # or: export GITHUB_TOKEN=..., or an existing `gh auth login` is used automatically
-/gh repos [filter]        # every repo you can access: owned, collaborator, organisation (Tab completes names)
-/gh use <#|owner/name>    # clone + an isolated worktree on branch raven/session-<time>
-/gh issues [filter]       # open issues of that repo
-/gh issue 42              # fresh worktree for #42, then the agent runs on it; prints the patch path
-```
-
-Pasting a GitHub issue URL into the chat does the same. Non-interactively:
-
-```bash
-make run ARGS="--issue https://github.com/owner/repo/issues/42"   # fetches the repo itself; public repos need no login
-```
-
-- **Isolation:** `workspaces/<owner>__<repo>/base` is a clone Raven never edits; every task gets its own git worktree and branch. Nothing is ever pushed — the result is the worktree's diff, saved as `patch.diff` next to the run report.
-- **Context:** the issue's title, labels, body, non-bot discussion (capped) and linked PRs/issues become the task; recent commits touching the file being fixed become adjudication evidence. Nothing else from GitHub is sent to the model.
-- **Security:** tokens come from the environment, the device flow (saved at `~/.config/raven/github.json`, mode 0600), or the GitHub CLI — never source or config. The token goes only to api.github.com and to git via environment config (not `.git/config`, a URL, or argv), never into prompts or reports; a rejected token is cleared. Repository names, branches and issue numbers are validated before they reach git; issue text is fenced as untrusted description and never executed.
-- **Setup:** only needed for private repositories — see `.env.example` (`GITHUB_TOKEN`, or `RAVEN_GITHUB_CLIENT_ID` for `/gh login`).
-
-## Conversation layer
-
-Modes: **Chat** (default, read-only, uses tools to answer questions about the repo) · **Plan** (`/plan <task>`, shows a plan and waits) · **Act** (`/act`, executes the exact plan you were shown — it does not silently recompute one) · **Autonomous** (`/auto <task>`, or auto-detected) · **Review** (`/review`, an independent critique of the current diff).
-
-Slash commands: `/help /plan /act /auto /review /diff /undo /checkpoints /evidence /memory /lessons /budget /config /model /repo /chat /clear /exit`. These are implemented once in `raven/session/manager.py` and shared identically by both the TUI and the plain REPL — there is no behavioral difference between them beyond rendering.
+---
 
 ## Architecture
 
 ```
+                        ┌──────────────────────────────────────────┐
+  make run  ──────────► │  CLI / TUI / plain REPL   (raven/ui, cli) │
+                        └───────────────┬──────────────────────────┘
+                                        │ repo + issue (path, paste, pipe, GitHub URL)
+                        ┌───────────────▼──────────────────────────┐
+                        │  Intake          intake.py · github.py    │  resolve the target repo, fetch
+                        │  Workspaces      workspace.py             │  issues, isolated git worktrees
+                        └───────────────┬──────────────────────────┘
+                        ┌───────────────▼──────────────────────────┐
+                        │  Orchestrator    core/orchestrator.py     │  strategy, budgets, verdict, report
+                        └───────┬───────────────────────┬──────────┘
+                ┌───────────────▼─────────┐   ┌─────────▼──────────────────┐
+                │  Crux (default)  crux/  │   │  Agent loop (fallback)     │
+                │  probe · candidates ·   │   │  core/executor.py + tools/ │
+                │  disagree · adjudicate  │   │  recovery/ · context/      │
+                └───────────────┬─────────┘   └─────────┬──────────────────┘
+                        ┌───────▼───────────────────────▼──────────┐
+                        │  LLM gateway     llm/   retries, native   │  DeepSeek / Qwen auto-detected
+                        │                  tool calls, quirks       │  from AI_API_KEY
+                        └───────────────────────────────────────────┘
+```
+
+```
 raven/
-├── cli.py · config.py · prompts.py           entry point, config loading, versioned prompt loader
-├── github.py · workspace.py · intake.py       GitHub auth/discovery/issues, isolated worktrees, task intake
-├── crux/           issue · repomap · probe · candidates · patching · regression · disagree ·
-│                   adjudicate · certificate · pipeline      the default strategy (see above)
-├── llm/            gateway.py · providers.py · fake.py · protocol.py
-├── ui/              tui.py (rich + prompt_toolkit) · repl.py (plain fallback)
-├── session/         manager.py                mode/slash-command logic, shared by both UIs
-├── core/            understand.py · planner.py · executor.py · judge.py · orchestrator.py · protocol.py
-├── tools/           registry.py · policy.py · fs.py · search.py · symbols.py · edit.py · shell.py
-│                    test_runner.py · git_tool.py
-├── repo/            digest.py                 file tree + symbol index + test-command detection
-├── context/         engine.py · decay.py       fresh-assembled context, age-based decay
-├── recovery/        checkpoints.py · handlers.py
-├── agents/          base.py · explorer.py · reviewer.py · debugger.py
-├── verify/          baseline.py · reproduce.py · score.py · trace.py · sbfl.py · behavior_diff.py
-├── memory/          lessons.py · project.py     cross-task lessons, durable project facts
-├── learn/           reflect.py · extract_lessons.py · evolve.py · tune.py
-└── report/          report.py
-
-prompts/base.yaml    every prompt the harness sends to a model, versioned (plan §12.3)
-evals/                tasks/*.yaml · run_evals.py · results/baseline.md
-tests/                 258 offline tests (FakeClient) + tests/fixtures/{toy_repo,crux_demo}
+├── cli.py · config.py · intake.py     entry point, configuration, which repo / which issue
+├── github.py · workspace.py           GitHub sign-in, repos, issues; isolated git worktrees
+├── crux/                              the core pipeline
+│   ├── issue.py · repomap.py            issue card, ranked code map
+│   ├── probe.py                         runs expressions in the target repo's own Python
+│   ├── candidates.py · patching.py      one-shot fix proposals, safe edit application
+│   ├── regression.py                    only the tests that exercise the changed code
+│   ├── disagree.py · adjudicate.py      input generation, behaviour clusters, the crux question
+│   ├── certificate.py · pipeline.py     evidence report, the loop itself
+├── core/                              orchestrator, budgets, verdicts, agent loop
+├── llm/                               gateway, OpenAI-compatible client, provider detection
+├── tools/                             read, search, edit, create, tests, restricted shell, git
+├── recovery/ · context/ · verify/     checkpoints, context decay, tracing & fault localisation
+├── session/ · ui/                     slash commands, terminal UI, plain REPL
+└── report/ · memory/ · learn/         run reports, lessons, offline prompt tuning
+prompts/base.yaml                      every prompt the model sees, versioned
+config.yaml                            model, strategy, budgets — every key is used
+evals/                                 eval tasks, offline + live benchmarks, make demo
+tests/                                 287 offline tests + fixture repositories
 ```
 
-**Orchestrator state machine** (`raven/core/orchestrator.py`):
+---
 
-```
-single_loop:   INTAKE -> DIGEST -> REPRODUCE+EXECUTE -> VERIFY -> JUDGE -> FINALIZE
-plan_execute:  INTAKE -> UNDERSTAND -> DIGEST -> PLAN -> EXECUTE(per step)
-               -> VERIFY -> JUDGE -> (REPLAN -> PLAN)* -> FINALIZE
-delegated:     same as plan_execute, plus Explorer delegation on exploratory
-               steps and one Reviewer pass on the final diff
-```
+## Model: DeepSeek & Qwen
 
-**Reproduce first, verified by the harness** (`raven/verify/reproduce.py`, plan §11.2). For bug fixes and features in a pytest repo, the executor first writes a reproduction test at `.raven/repro/test_repro.py` that must fail on the current code, then fixes the code until it passes. Raven then checks that claim itself, independently of the model: it swaps the original files back in, runs the reproduction (it must **fail**), restores the fix, and runs it again (it must **pass**). This is what makes a fix provable when the repo has no failing test for the issue, e.g. when the grader's tests are hidden. A reproduction that still fails on the fix gets the run rejected; one that never failed earns no credit. The test lives in Raven's git-excluded scratch dir, is archived next to the run's `report.md`, and never appears in the patch. Toggle: `verify.reproduce` in `config.yaml`.
+The evaluation uses **DeepSeek and Qwen APIs**, and supplies only `AI_API_KEY`. Raven handles the rest at startup:
 
-Every run — regardless of strategy — also runs the learning loop: pinned cross-task lessons are retrieved before EXECUTE, in-run reflection fires on failed steps (capped at 3), and a new lesson is extracted and stored at the end.
+1. **Finds the provider** that accepts the key, using a free `GET /models` call on each endpoint in `config.yaml`: DeepSeek, then Alibaba Model Studio (DashScope) international, US and China.
+2. **Picks the model** — the first of that provider's preferred models the key can access (e.g. `deepseek-v4-pro`, `qwen3-coder-plus`, `qwen3.8-max`), otherwise the best coding/chat model it lists. Vision, embedding, audio, reasoning-only and stream-only models are never picked.
+3. **Prints the choice**, e.g. `[raven] model: deepseek-v4-pro via api.deepseek.com (auto-detected, provider deepseek)`.
 
-## Sample run report
+Provider-specific settings are applied automatically (DeepSeek: thinking mode off; Qwen: `enable_thinking: false`, which DashScope requires for non-streaming calls). If an endpoint rejects any optional field, Raven drops it and retries rather than failing.
 
-A real report from the eval harness (`evals/work/bug_average_single_loop/.raven/runs/*/report.md`), lightly trimmed:
+To pin a model instead: `export RAVEN_BASE_URL=... RAVEN_MODEL=...`, or `RAVEN_PROVIDER=deepseek|qwen`, or edit `config.yaml`. Settings are fixed for reproducibility: temperature 0, seed 7.
 
-```markdown
-# Raven run 20260926T203639-4f9236
+---
 
-**Goal:** Fix the failing test_average test in tests/test_arithmetic.py. The
-average() function in calc/arithmetic.py has an off-by-one bug.
+## Using Raven
 
-**Outcome:** RESOLVED
-**Reason:** evidence score 1.0 meets threshold; no new test failures
+**In the terminal UI**
 
-## Evidence
-{
-  "evidence_score": 1.0,
-  "repro_fixed": true,
-  "no_new_failures": true,
-  "pre_failed": ["tests/test_arithmetic.py::test_average", "tests/test_strings.py::test_is_palindrome_false"],
-  "post_failed": ["tests/test_strings.py::test_is_palindrome_false"],
-  "collateral_changes": []
-}
+| Command | What it does |
+|---|---|
+| *(just type)* | Chat about the code; paste an issue to run the agent on it |
+| `/auto <task>` | Run the agent on a task |
+| `/plan <task>` · `/act` | Show a plan first, then run exactly that plan |
+| `/diff` · `/undo` · `/checkpoints` | Inspect or revert the agent's changes |
+| `/evidence` · `/budget` · `/model` | Last run's evidence, token/time usage, model in use |
+| `/repo <path or owner/name>` | Switch repository |
+| `/help` · `/exit` | Help, quit |
 
-## Execution story
-outcome: AssertionError:
--> test_average() at line 12
--> average() at line 9
-exception raised at line 13
+**GitHub** (optional — only needed for private repositories; your `gh` CLI login is used automatically):
 
-## Suspicious locations (Ochiai)
-- 1.0    calc/__init__.py:0
-- 0.707  calc/arithmetic.py:1
-- 0.707  calc/arithmetic.py:11
-- 0.707  calc/arithmetic.py:5
-- 0.707  calc/arithmetic.py:9
+| Command | What it does |
+|---|---|
+| `/gh login` · `/gh status` · `/gh logout` | Sign in (OAuth device flow), check, sign out |
+| `/gh repos [filter]` | Every repository you can access; Tab completes names |
+| `/gh use <#/owner/name>` | Clone into an isolated worktree |
+| `/gh issues [filter]` · `/gh issue 42` | List open issues; run the agent on one |
 
-## Files changed
-- calc/arithmetic.py
+The result of a GitHub task is a `patch.diff` next to the run report — **nothing is ever pushed**.
 
-## Usage
-- tool calls: 4  ·  LLM calls: 6  ·  tokens: 4041
-```
+---
 
-## Eval results
+## Results
 
-`evals/results/baseline.md`, produced by `python evals/run_evals.py` against `tests/fixtures/toy_repo` (a small package with 2 planted bugs) using a `FakeClient` scripted with the correct action sequence per task — this makes the number reproducible offline, but it measures "does the pipeline work end to end," not model quality (see below):
+**Offline evaluation** (`make eval`, scripted model, reproducible): **16/16 tasks resolved** across bug fixes, features, refactors, test writing and questions, including two Crux tasks graded by hidden tests.
 
-**Resolved: 16/16 · avg tokens: 3312 · avg tool calls: 2.4**, split across `crux` (2 tasks), `single_loop` (8), `plan_execute` (3), and `delegated` (3) strategies, and task types bug_fix/feature/refactor/test_writing/question. `t14` is graded the way the hackathon likely grades: an issue-style goal with no test named, scored by a **hidden test** the agent never sees (written in only after the run), and it additionally requires the reproduction to be verified fail→pass.
+**Live benchmark** (`evals/live_eval.py`): 8 realistic bugs whose visible tests pass on the buggy code, graded **only by hidden tests** the model never sees, run with free local Qwen models on an 8 GB laptop:
 
-### Live benchmark (real model, no scripted replies)
-
-`evals/live_eval.py` runs `evals/live_tasks.yaml` — 8 realistic bugs in `tests/fixtures/bugbench`, whose visible tests pass on the buggy code — against any OpenAI-compatible endpoint, graded **only by hidden tests**. First run, local **Qwen2.5-Coder 3B** via Ollama on an 8 GB laptop (7 of 8 tasks completed; `evals/results/live_run_3b.txt`):
-
-| | Crux | agent loop (`single_loop`) |
+| Model | Crux | Plain agent loop |
 |---|---|---|
-| hidden-test passes | **4 / 7** | 1 / 7 |
-| wrong patches reported as RESOLVED | 0 | 0 |
-| cost when resolved | 5 calls · ~2.6k tokens · ~90 s | typically 21 calls · ~40k tokens · ~5 min |
+| Qwen2.5-Coder 3B (7 tasks) | **4 / 7** fixed | 1 / 7 |
+| Qwen2.5-Coder 7B (8 tasks) | **5 / 8** fixed | 3 / 8 |
+| Cost of a clean Crux solve (7B) | ~6 calls · ~3k tokens · ~2 min | loop typically ~21 calls · ~40k tokens |
 
-Two of Crux's passes (truncate, chunk) were correct fixes that it labelled *partial* after an unnecessary fallback; this run predates the timeout-masking fix, and closing that gap is the next tuning target. A 3B model is far weaker than the evaluator's Qwen/DeepSeek, so treat this as a floor.
+Each failure in these runs was analysed and fixed (the behaviour guard, tolerant expectation matching, and dropping expectations that copy the reported bug). A partial re-run on the 7B model then solved all 3 tasks it reached (including one that had failed before), in 5–7 calls each. These small local models are far weaker than the evaluation's DeepSeek/Qwen, so treat these numbers as a floor.
 
-## Learning & evolution
+---
 
-Being precise about what's real here, because it's easy to overstate:
+## Submission guideline compliance
 
-**Genuinely working and tested:**
-- Prompts live in `prompts/base.yaml`, versioned, loaded once via `raven/prompts.py` — no prompt text is hardcoded in Python.
-- In-run reflection: a failed step triggers one model call ("what did you assume that was wrong?"), capped at 3 per run, pinned into context for the rest of that run.
-- Cross-task lessons: every run ends with a lesson-extraction call; lessons are deduplicated by word-overlap, stored per-repo (`.raven/memory/lessons.jsonl`) or globally (`memory/global_lessons.jsonl`), and retrieved (deterministically, no model call) at the start of future runs. **Verified end to end**: `tests/test_learning.py::test_second_run_context_contains_lesson_extracted_from_first_run` proves a lesson from one run is pinned into a second, independent run's context.
-- Project memory: durable facts (e.g. the detected test command) are appended to `.raven/memory/project.md`, idempotently.
-- `/lessons` shows what's been learned about the current repo.
+| Guideline | How Raven meets it |
+|---|---|
+| §1 Makefile with `setup`, `run`, `test`, `clean` | ✅ At the repo root, plus `eval` and `demo` |
+| §2, §8 `AI_API_KEY` only from the environment; no secrets | ✅ Read only from the environment, never printed; no keys anywhere in the repo or its history; `.env.example` has empty values |
+| §3 Text-only models | ✅ Text in, text out; no image/audio/video |
+| §4 Model defined in configuration; prescribed model used | ✅ `config.yaml` defines the DeepSeek/Qwen providers and preferred models; the one used is detected from the provided key and printed |
+| §5, §12 `clone → export key → make setup → make run` | ✅ Verified on a fresh clone; the issue can be pasted, piped, passed as a flag/env var, or given as a GitHub URL |
+| §6 TUI launched by `make run` | ✅ No other command needed; plain REPL fallback |
+| §9 Environment independence | ✅ All dependencies installed by `make setup`; the target repo's tests run with its own interpreter |
+| §10 Reproducible execution | ✅ Temperature 0, seed 7, deterministic tooling; settings documented in `config.yaml` |
+| §13 Tested in a clean environment | ✅ Fresh clone on Python 3.9.6 and 3.12: `make setup`, `make test`, `make demo`, `make run` |
 
-**Mechanism-verified, not quality-verified — needs a live model:**
-- `raven/learn/evolve.py` (`make evolve`) implements the full reflective-evolution loop from plan §12.3: population, Pareto selection on (resolve rate, tokens), a real model call to diagnose failures and rewrite a prompt module, crossover, and a held-out gate that requires at least one more resolved task before promoting anything to `prompts.tuned.yaml`. Run offline (no `AI_API_KEY`), this correctly **never promotes a candidate** — the eval harness's tasks are scripted with a fixed, hardcoded tool-call sequence per task, so their outcome cannot change based on prompt text. That's not a bug; it's the held-out gate doing its job. A genuine tuning signal requires a live model and real budget.
-- `raven/learn/tune.py` (`make evolve` doesn't cover this, run directly: `python -m raven.learn.tune`) is the same story for numeric config knobs (successive halving over `half_life`/`max_replans`). Every `config.yaml` key is now read by the run (`RavenConfig.run_kwargs()`; `tests/test_budget.py` fails if a key is added that nothing reads), so a tuned `config.tuned.yaml` takes effect end to end.
-- The `delegated` and `plan_execute` executor strategies are both implemented and covered by tests/evals, but neither is the `config.yaml` default over `single_loop` — promoting either needs a real ablation against the prescribed model, which FakeClient-scripted evals cannot provide (see the `# PLAN-DECISION` comments in `raven/core/orchestrator.py`).
+---
+
+## Configuration
+
+`config.yaml` (every key is used; a test enforces this):
+
+| Section | What it controls |
+|---|---|
+| `llm` | Provider list for auto-detection, temperature, seed, timeouts, retries |
+| `executor` | Strategy (`crux` default, or `single_loop`), number of candidates, parallel calls, loop limits |
+| `verify` | Reproduction, tracing, behaviour checks |
+| `budgets` | Token and time limits for a whole run (nudge at 80%, stop at 100%) |
+| `ui` | Terminal UI on/off/auto |
+
+Environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `AI_API_KEY` | **Required.** The model API key |
+| `RAVEN_BASE_URL`, `RAVEN_MODEL`, `RAVEN_PROVIDER` | Optional: pin the endpoint/model instead of auto-detecting |
+| `RAVEN_REPO`, `RAVEN_ISSUE` | Optional: target repository and issue text |
+| `RAVEN_TARGET_PYTHON` | Optional: interpreter for the target repo's tests |
+| `GITHUB_TOKEN`, `RAVEN_GITHUB_CLIENT_ID` | Optional: GitHub access for private repositories (see `.env.example`) |
+
+---
 
 ## Security
 
-- `AI_API_KEY` is read only from the environment — never from config, code, or the Makefile, and never printed. It is scrubbed (with anything matching `KEY`/`TOKEN`/`SECRET`) from every subprocess that runs the target repo's code: tests, tracer, coverage, shell.
-- File tools are jailed to the target repository; `create` never overwrites; `.env` files and private keys are never read, searched, or listed (anything read is sent to the model provider).
-- Editing an *existing* test file is denied in every mode (creating new test files is allowed).
-- The `shell` tool runs **one** allowlisted command (`python <script>`, `python -m pytest`, `pytest`, `ls`, `cat`, `grep`, `echo`, `pwd`, `find`) **without a shell**: chaining, pipes, redirection and substitution are rejected, path arguments must stay inside the repo, `find -delete/-exec` are refused, and on timeout the whole process group is killed. `rm`, `curl`/`wget`, `pip`/`npm`, `git`, `sudo`, shells, … are denied in every mode, even with approval (`raven/tools/policy.py`).
-- Honest limit: this is not an OS sandbox for the target's *own* code — running its tests or a script in it executes that code with normal permissions, as any test runner does.
-- Every write is checkpointed first; a failed or aborted run restores the tree exactly. Raven's own state (`.raven/`) is excluded via `.git/info/exclude`, and running tests writes no `__pycache__`/`.pytest_cache`, so the final tree holds only the patch.
+- The API key is read only from `AI_API_KEY`, and is scrubbed from every process that runs the target repository's code.
+- File tools are confined to the target repository, and never read `.env` files or private keys.
+- The shell tool runs **one** allowlisted command without a shell: no chaining, pipes or redirection; paths must stay in the repository; `rm`, `curl`, `pip`, `git`, `sudo` and similar are always refused.
+- Every change is checkpointed and can be undone; Raven's own files (`.raven/`) are excluded from git, so the final tree contains only the fix.
+- GitHub tokens never appear in prompts, reports, `.git/config` or command lines.
+- Issue text is treated as untrusted: it is never executed.
+
+---
+
+## Testing
+
+```bash
+make test                                   # 287 offline tests (no key, no network)
+make demo                                   # the Crux demo
+make eval                                   # 16 offline eval tasks
+.venv/bin/python evals/live_eval.py --model qwen2.5-coder:7b --strategies crux   # live benchmark
+```
+
+[TESTING.md](TESTING.md) walks through the evaluators' procedure step by step, with a free local model.
+
+---
 
 ## Limitations
 
-- Eval numbers come from `FakeClient`-scripted runs (they prove the pipeline, not model quality). Live runs against gpt-oss-20b were used to find and fix real failures (native tool-call rejections, format quirks), but there is no live eval curve yet.
-- Test-based verification is pytest-only. In other stacks Raven still edits and reports, but a run can only be **RESOLVED (unverified)** — it is never reported as plain RESOLVED without test evidence.
-- Target tests run with the target repo's own interpreter (`$RAVEN_TARGET_PYTHON`, else its `.venv`/`venv`, else `python3` on PATH, else Raven's) — whichever can import pytest. If none has the target's dependencies, its tests error before and after alike and the evidence shows that.
-- Symbol indexing is Python-only (other languages: file tree + text search).
-- Context compaction, mutation testing and the disagreement check from the plan are not built; the corresponding config keys were removed rather than left as dead switches.
-- `delegated`/`plan_execute` are not the shipped default; see above.
-
-## Submission checklist (plan §22)
-
-- [x] `make setup && make run` works from a clean checkout; `make test` works offline without a key (verified on a fresh copy of the tree with no `.venv`/`.raven`, on Python 3.9.6 and 3.12: `make setup` OK, `make test` 244/244, `make demo` OK; `make run` refuses to start a scored run without `AI_API_KEY` or without a target repository, with instructions; a piped issue runs the full pipeline and leaves only the patch)
-- [x] `AI_API_KEY` from environment only; `.env.example` has an empty value; no secrets in the repo
-- [x] Model/endpoint defined in config, overridable by env (`RAVEN_MODEL`, `RAVEN_BASE_URL`)
-- [x] Seed, temperature, frozen base config documented (`config.yaml`); `config.tuned.yaml`/`prompts.tuned.yaml` are supported override paths, not present by default (no genuine tuning run has been done — see above)
-- [x] Issue input works via flag, file, stdin, and TUI/REPL paste
-- [x] Autonomous run leaves only the intended patch; report written; result block printed
-- [x] Integrity guarantees (no network/push/history-rewrite, env scrubbing, path jailing) enforced in code
-- [x] README has quick start, architecture, sample report, eval results, and limitations
-- [ ] **Not applicable yet**: "prescribed model" / "organiser endpoint" — this hackathon detail isn't available in this environment; `RAVEN_MODEL`/`RAVEN_BASE_URL` make swapping to it a two-env-var change
-- [ ] Real eval/evolution curve against a live model — pending `AI_API_KEY` and real budget
+- **Crux executes Python.** Other languages use the agent-loop fallback, which is less powerful.
+- **Correlated mistakes:** if every candidate shares the same wrong belief, there is no disagreement to find; the report then says the candidates agreed, not that the fix is proven.
+- **Not yet run on the evaluation's models:** live testing so far used local Qwen2.5-Coder 3B/7B. DeepSeek and Qwen API support is verified against their official documentation, their real endpoints, and local emulators of their documented behaviour, but not with a real key.
+- **Key probing:** a generic `sk-…` key is offered to DeepSeek before Alibaba during detection. Set `RAVEN_PROVIDER` to avoid this.
