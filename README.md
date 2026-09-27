@@ -68,6 +68,8 @@ make run ARGS="--repo /path/to/target-repo"
 export RAVEN_REPO=/path/to/target-repo          # then: make run
 ```
 
+**To test it the way the evaluators will** (including with a free local model), follow [TESTING.md](TESTING.md).
+
 In a real terminal this launches the TUI (rich panels, live tool stream). `TERM=dumb` or a failing TUI falls back to a plain REPL automatically.
 
 `make test` runs the full offline test suite (258 tests; no API key or network — the model is a scripted `FakeClient`).
