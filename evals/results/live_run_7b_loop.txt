@@ -1,0 +1,12 @@
+slugify_repeated_separators    single_loop  hidden=PASS  raven=unresolved  calls=17 tokens=35411 647.3s  budget exhausted: time budget exhausted (637s/600s)
+truncate_exceeds_width         single_loop  hidden=fail  raven=RESOLVED  <-- FALSE RESOLVED  calls=6 tokens=10673 116.5s  evidence score 0.5 meets threshold; no new test failures
+clamp_upper_bound              single_loop  hidden=PASS  raven=unresolved  calls=21 tokens=43286 492.8s  budget exhausted: max_iterations reached without calling done
+roman_subtractive              single_loop  hidden=fail  raven=unresolved  calls=21 tokens=43104 479.2s  budget exhausted: max_iterations reached without calling done
+dedupe_order                   single_loop  hidden=PASS  raven=RESOLVED  calls=3 tokens=4756 43.5s  evidence score 0.5 meets threshold; no new test failures
+merge_touching_intervals       single_loop  hidden=fail  raven=unresolved  calls=21 tokens=42230 327.7s  budget exhausted: max_iterations reached without calling done
+chunk_last_partial             single_loop  hidden=fail  raven=unresolved  calls=6 tokens=11794 119.0s  reproduction test still fails after the fix
+parse_compound_duration        single_loop  hidden=fail  raven=unresolved  calls=21 tokens=45199 553.4s  budget exhausted: max_iterations reached without calling done
+
+single_loop  hidden-pass 3/8  false-resolved 1  avg calls 14.5  avg tokens 29557  avg 347s
+
+details: /Users/sachinjaiswal/Desktop/ai-harness-hackathon/evals/results/live_qwen2.5-coder_7b.jsonl

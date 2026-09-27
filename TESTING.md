@@ -24,7 +24,7 @@ export RAVEN_BASE_URL=http://localhost:11434/v1
 export RAVEN_MODEL=qwen2.5-coder:7b
 ```
 
-(The evaluator won't set `RAVEN_BASE_URL`/`RAVEN_MODEL`; the prescribed model must be in `config.yaml`.)
+The evaluator sets only `AI_API_KEY`. With a real DeepSeek or Qwen key, nothing else is needed: Raven detects the provider and model at startup and prints its choice. `RAVEN_BASE_URL`/`RAVEN_MODEL` are only for pointing it somewhere else, like the local model above.
 
 ## 3. Setup
 

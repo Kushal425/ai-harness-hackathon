@@ -1,14 +1,35 @@
 # Raven configuration. Every key below is read by the code (raven/config.py);
 # config.tuned.yaml, if present, is loaded instead of this file.
 #
-# Model / endpoint: the model Raven has been tested against end to end.
-# If the organisers prescribe a different model or endpoint, override it
-# without touching code:  export RAVEN_MODEL=...  RAVEN_BASE_URL=...
+# Model / endpoint. The evaluators supply only AI_API_KEY (a DeepSeek or Qwen
+# key), so `auto` detects the provider that accepts the key -- a free
+# GET /models on each candidate below, in order -- and uses the first of its
+# preferred models the key can access (else the best chat/coder model it
+# lists). The choice is printed at startup. To pin them instead, replace
+# `auto`, or export RAVEN_BASE_URL / RAVEN_MODEL (or RAVEN_PROVIDER=deepseek|qwen).
 # The API key is only ever read from the AI_API_KEY environment variable.
 llm:
   provider: openai_compatible
-  base_url: "https://api.groq.com/openai/v1"   # RAVEN_BASE_URL overrides
-  model: "openai/gpt-oss-20b"                  # RAVEN_MODEL overrides
+  base_url: auto
+  model: auto
+  providers:
+    - name: deepseek
+      base_url: https://api.deepseek.com/v1
+      models: [deepseek-chat, deepseek-v3, deepseek-coder]
+    - name: qwen          # Alibaba Model Studio (DashScope), international
+      base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+      models: [qwen3-coder-plus, qwen3-coder-flash, qwen-coder-plus, qwen-plus, qwen-max, qwen-turbo]
+    - name: qwen-cn       # DashScope, mainland China
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      models: [qwen3-coder-plus, qwen3-coder-flash, qwen-coder-plus, qwen-plus, qwen-max, qwen-turbo]
+    - name: openrouter    # only for keys starting sk-or-
+      base_url: https://openrouter.ai/api/v1
+      key_prefix: sk-or-
+      models: [qwen/qwen3-coder, deepseek/deepseek-chat-v3.1, deepseek/deepseek-chat]
+    - name: groq          # only for keys starting gsk_
+      base_url: https://api.groq.com/openai/v1
+      key_prefix: gsk_
+      models: [qwen/qwen3-32b, openai/gpt-oss-20b]
   temperature: 0          # reproducibility: deterministic decoding
   seed: 7                 # reproducibility: sent to the endpoint, and seeds retry jitter
   max_output_tokens: 2048

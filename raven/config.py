@@ -17,8 +17,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 @dataclass
 class LLMConfig:
     provider: str = "openai_compatible"
-    base_url: str = "https://api.groq.com/openai/v1"
-    model: str = "openai/gpt-oss-20b"
+    base_url: str = "auto"      # "auto": detected from AI_API_KEY (raven/llm/detect.py)
+    model: str = "auto"
     temperature: float = 0
     seed: int = 7
     max_output_tokens: int = 2048
@@ -26,6 +26,8 @@ class LLMConfig:
     request_timeout_s: int = 60
     max_retries: int = 5
     api_key: str = ""
+    providers: list = field(default_factory=list)  # candidates for auto-detection, in order
+    detected: str = ""                              # "deepseek-chat via api.deepseek.com (auto-detected)"
 
 
 @dataclass
@@ -111,5 +113,28 @@ def load_config(config_path: Path | None = None) -> RavenConfig:
         request_timeout_s=llm_raw.get("request_timeout_s", LLMConfig.request_timeout_s),
         max_retries=llm_raw.get("max_retries", LLMConfig.max_retries),
         api_key=os.environ.get("AI_API_KEY", ""),
+        providers=list(llm_raw.get("providers") or []),
     )
     return RavenConfig(llm=llm, raw=raw)
+
+
+def resolve_llm(config: RavenConfig, transport=None) -> RavenConfig:
+    """Fill in `auto` base_url/model by probing the key (see detect.py).
+    Explicit values (config or RAVEN_BASE_URL/RAVEN_MODEL) are left alone.
+    Raises DetectionError when no provider accepts the key."""
+    from urllib.parse import urlparse
+
+    from raven.llm.detect import DEFAULT_PROVIDERS, detect
+
+    llm = config.llm
+    if not llm.api_key or (llm.base_url != "auto" and llm.model != "auto"):
+        return config
+    providers = llm.providers or DEFAULT_PROVIDERS
+    if llm.base_url != "auto":  # endpoint given, model not: choose from what it lists
+        providers = [{"name": "configured", "base_url": llm.base_url, "models": []}]
+    found = detect(llm.api_key, providers, forced=os.environ.get("RAVEN_PROVIDER") or None, transport=transport)
+    if llm.model != "auto":
+        found.model = llm.model
+    llm.base_url, llm.model = found.base_url, found.model
+    llm.detected = f"{found.model} via {urlparse(found.base_url).netloc} (auto-detected, provider {found.provider})"
+    return config

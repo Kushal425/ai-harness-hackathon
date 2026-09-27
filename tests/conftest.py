@@ -9,3 +9,8 @@ def _no_real_github_credentials(tmp_path_factory, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
     monkeypatch.setenv("RAVEN_NO_GH_CLI", "1")
+    # ...and never probe real model providers at startup: an explicit
+    # endpoint/model skips auto-detection (tests/test_detect.py unsets these)
+    monkeypatch.setenv("RAVEN_BASE_URL", "http://model.test.invalid/v1")
+    monkeypatch.setenv("RAVEN_MODEL", "test-model")
+    monkeypatch.delenv("RAVEN_PROVIDER", raising=False)

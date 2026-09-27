@@ -54,10 +54,12 @@ class OpenAICompatibleClient:
             "model": self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": self.temperature if temperature is None else temperature,
-            "seed": self.seed,
+
             "max_tokens": self.max_output_tokens,
             "stream": stream,
         }
+        if self.seed is not None:
+            payload["seed"] = self.seed
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -102,11 +104,25 @@ class OpenAICompatibleClient:
                     text=self._recover_failed_generation(err["failed_generation"]),
                     raw={"recovered_from": "tool_use_failed"},
                 )
-            if send_tools and "tool" in str(err.get("message", "")).lower():
+            message = str(err.get("message", "")).lower()
+            if "seed" in message and self.seed is not None:
+                # an endpoint that rejects the seed parameter: drop it for the session
+                self.seed = None
+                resp = self._client.post("/chat/completions", json=self._payload(messages, False, send_tools, temperature))
+                if resp.status_code != 400:
+                    resp.raise_for_status()
+                    return self._parse(resp, send_tools)
+                err = self._error_of(resp)
+                message = str(err.get("message", "")).lower()
+            if send_tools and ("tool" in message or "function" in message):
+                # DeepSeek's reasoner answers "does not support Function Calling"
                 # the endpoint won't take `tools` at all: text protocol from now on
                 self.native_tools = False
                 resp = self._client.post("/chat/completions", json=self._payload(messages, False, None, temperature))
         resp.raise_for_status()
+        return self._parse(resp, send_tools)
+
+    def _parse(self, resp, send_tools) -> CompletionResult:
         if send_tools and self.native_tools is None:
             self.native_tools = True  # the endpoint accepted `tools`
         data = resp.json()

@@ -75,7 +75,7 @@ def test_every_config_key_is_read():
 
     raw = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text())
     read_by_code = {
-        "llm": {"provider", "base_url", "model", "temperature", "seed", "max_output_tokens",
+        "llm": {"provider", "base_url", "model", "providers", "temperature", "seed", "max_output_tokens",
                 "tool_protocol", "request_timeout_s", "max_retries"},
         "executor": {"strategy", "candidates", "max_candidates", "parallel_calls", "max_iterations",
                      "max_replans", "delegate_min_reads"},

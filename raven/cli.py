@@ -11,7 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from raven.config import load_config
+from raven.config import load_config, resolve_llm
+from raven.llm.detect import DetectionError
 from raven.core.judge import outcome_label
 from raven.core.orchestrator import run_orchestrator
 from raven.llm.fake import FakeClient
@@ -167,6 +168,13 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
 
+    try:
+        resolve_llm(config)
+    except DetectionError as exc:
+        print(f"[raven] {exc}", file=sys.stderr)
+        return 2
+    if config.llm.detected:
+        print(f"[raven] model: {config.llm.detected}")
     gateway = build_gateway(config)
     try:
         if issue_text:

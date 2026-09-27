@@ -88,7 +88,9 @@ for case in spec["cases"]:
                 expected = eval(case["expected"], ns)
                 res["match"] = bool(value == expected)
             except BaseException:
-                res["match"] = _repr(value) == case["expected"]
+                # not valid as Python (e.g. an unquoted string: hello): compare as text
+                want = case["expected"].strip()
+                res["match"] = _repr(value) == want or str(value) == want or str(value) == want.strip("'\"")
     out["results"].append(res)
 print(MARKER + json.dumps(out))
 '''.replace("MARKER", repr(MARKER))

@@ -1,0 +1,3 @@
+slugify_repeated_separators    crux         hidden=PASS  raven=RESOLVED  calls=5 tokens=2786 122.6s  reproduction fixed; no new test failures; 3 candidates, 1 survived, 1 behaviour cluster(s)
+truncate_exceeds_width         crux         hidden=PASS  raven=RESOLVED  calls=7 tokens=3635 145.7s  issue not reproduced by a probe; no new test failures; 3 candidates, 3 survived, 3 behavio
+clamp_upper_bound              crux         hidden=PASS  raven=RESOLVED  calls=6 tokens=3059 128.9s  reproduction fixed; no new test failures; 3 candidates, 3 survived, 1 behaviour cluster(s)

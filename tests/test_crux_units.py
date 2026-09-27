@@ -92,3 +92,62 @@ def test_timeouts_never_split_clusters():
     assert [sorted(c.members) for c in clusters] == [["c1", "c2", "c3"]]  # input 1 masked for everyone
     clusters = cluster({"c1": ("=> []", "=> 2"), "c3": ("=> []", "timeout"), "c2": ("=> [[]]", "=> 2")})
     assert sorted(c.members for c in clusters) == [["c1", "c3"], ["c2"]]
+
+
+# -- regressions from the live Qwen2.5-Coder-7B benchmark ----------------------
+
+def test_unquoted_string_expectation_still_matches(tmp_path):
+    # the model wrote  "expected": "hello"  (meaning the string) -- a NameError as Python
+    run = run_probe(tmp_path, Probe("", [Case("'hel' + 'lo'", expected="hello"), Case("'x'", expected="hello")]))
+    assert [r.match for r in run.results] == [True, False]
+
+
+def test_expectation_copied_from_the_reported_bug_is_dropped(tmp_path):
+    from raven.crux.pipeline import _drop_contradictions
+
+    (tmp_path / "m.py").write_text("def f(xs):\n    return xs[:2]\n")
+    issue = "f([1, 2, 3]) returns [1, 2] -- the last item is dropped."
+    probe = Probe("from m import f", [Case("f([1, 2, 3])", expected="[1, 2]"),       # the bug, copied as 'expected'
+                                      Case("f([9])", expected="[9]")])               # fine: not quoted in the issue
+    probe, run = _drop_contradictions(probe, run_probe(tmp_path, probe), issue, tmp_path)
+    assert probe.cases[0].expected is None and probe.cases[1].expected == "[9]"
+
+
+def test_variants_include_case_changes():
+    exprs = [c.expr for c in variant_cases(Probe("", [Case("roman_to_int('IV')")]))]
+    assert "roman_to_int('iv')" in exprs
+
+
+def test_a_fix_that_crashes_where_the_original_did_not_is_rejected(tmp_path):
+    """Live failure: the only surviving roman fix crashed on lowercase input
+    (KeyError), was reported RESOLVED, and failed the hidden test."""
+    import json
+    import subprocess
+
+    from raven.crux.pipeline import run_crux
+    from raven.llm.fake import FakeClient
+    from raven.llm.gateway import LLMGateway
+
+    (tmp_path / "rn.py").write_text(
+        'def roman_to_int(numeral):\n'
+        '    values = {"I": 1, "V": 5, "X": 10}\n'
+        '    return sum(values[ch] for ch in numeral.upper())\n')
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"]):
+        subprocess.run(["git", "-C", str(tmp_path), *args], capture_output=True)
+    j = lambda o: "```json\n" + json.dumps(o) + "\n```"  # noqa: E731
+    search = "    return sum(values[ch] for ch in numeral.upper())"
+    crashy = ("    return sum(values[ch] if i == len(numeral) - 1 or values[ch] >= values[numeral[i + 1]] "
+              "else -values[ch] for i, ch in enumerate(numeral.upper()))")
+    good = ("    s = numeral.upper()\n    return sum(values[c] if i == len(s) - 1 or values[c] >= values[s[i + 1]] "
+            "else -values[c] for i, c in enumerate(s))")
+    script = [
+        j({"locations": [{"file": "rn.py", "symbol": "roman_to_int", "hypothesis": "no subtractive notation"}]}),
+        j({"setup": "from rn import roman_to_int", "cases": [{"expr": "roman_to_int('IV')", "expected": "4"}]}),
+        j({"hypothesis": "subtract smaller before larger", "edits": [{"path": "rn.py", "search": search, "replace": crashy}]}),
+        j({"hypothesis": "subtract smaller before larger, on the uppercased string",
+           "edits": [{"path": "rn.py", "search": search, "replace": good}]}),
+    ]
+    out = run_crux(LLMGateway(FakeClient(script)), tmp_path, "roman_to_int('IV') returns 6, should be 4",
+                   k=1, max_candidates=2, parallel=False)
+    assert out.candidates[0].status == "new-crash" and "KeyError" in out.candidates[0].notes[0]
+    assert out.winner is not None and out.winner.id == "c2"

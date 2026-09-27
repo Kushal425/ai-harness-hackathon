@@ -118,6 +118,37 @@ def _probe(gateway, ledger, card, rmap, fns, repo_root) -> tuple[Probe | None, P
     return None, None
 
 
+def _drop_contradictions(probe: Probe, run: ProbeRun, issue: str, repo_root) -> tuple:
+    """An expectation equal to what the ORIGINAL code already returns, for a
+    call the issue itself quotes, contradicts the issue (the model copied
+    the reported buggy output as 'expected'). Drop it rather than let it
+    reject every correct fix."""
+    flat = " ".join(issue.split())
+    changed = False
+    for case, res in zip(probe.cases, run.results):
+        if case.expected is not None and res.match and " ".join(case.expr.split()) in flat:
+            case.expected, changed = None, True
+    return (probe, run_probe(repo_root, probe)) if changed else (probe, run)
+
+
+def _guard_cases(probe: Probe | None, rmap: RepoMap, fns) -> list:
+    base = list(probe.cases) if probe else []
+    return [Case(c.expr, None, c.raises, c.setup, c.origin) for c in base] + \
+        variant_cases(Probe("", base)) + harvested_cases(rmap, {f.name for f in fns})
+
+
+def _new_crashes(guard: Probe | None, before: ProbeRun | None, after: ProbeRun | None) -> list:
+    """Inputs where the original code returned a value but the candidate
+    raises -- unless the issue asked for that exception."""
+    if not (guard and before and after):
+        return []
+    out = []
+    for case, b, a in zip(guard.cases, before.results, after.results):
+        if (b.outcome or "").startswith("=> ") and (a.outcome or "").startswith("raises ") and not case.raises:
+            out.append(f"{a.outcome} on {case.expr} (original: {b.outcome[3:60]})")
+    return out
+
+
 def _calls(expr: str) -> set:
     """Names of the functions/methods an expression calls."""
     import ast
@@ -158,12 +189,17 @@ def _improves(before: ProbeRun | None, after: ProbeRun) -> bool:
 
 
 def _evaluate(repo_root, cand: Candidate, probe, reproduced, rmap, baseline_failed, base_tests,
-              before: ProbeRun | None = None) -> tuple:
+              before: ProbeRun | None = None, guard: Probe | None = None, guard_before: ProbeRun | None = None,
+              guard_runs: dict | None = None) -> tuple:
     """(probe_run, new_failures, tests). Sets cand.status."""
     tests = sorted(set(base_tests) | set(related_tests(rmap, list(cand.files))))
     with applied(repo_root, cand):
         run = run_probe(repo_root, probe) if probe else None
         ran, failed, tail = run_tests(repo_root, tests)
+        guard_run = run_probe(repo_root, guard) if guard and guard.cases else None
+    if guard_runs is not None and guard_run is not None:
+        guard_runs[cand.id] = guard_run
+    crashes = _new_crashes(guard, guard_before, guard_run)
     new_fail = sorted(set(failed) - set(baseline_failed))
     if not ran:
         cand.status = "broke-tests"
@@ -171,6 +207,9 @@ def _evaluate(repo_root, cand: Candidate, probe, reproduced, rmap, baseline_fail
     elif new_fail:
         cand.status = "broke-tests"
         cand.notes.append("new failures: " + ", ".join(new_fail[:5]))
+    elif crashes:
+        cand.status = "new-crash"
+        cand.notes.append("; ".join(crashes[:3]))
     elif reproduced and run is not None and not _improves(before, run):
         cand.status = "misses-issue"
         cand.notes.append("probe still wrong:\n" + describe(probe, run))
@@ -206,6 +245,8 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
 
     _working(on_event, "writing a probe that reproduces the issue…")
     probe, before = _probe(gateway, ledger, card, rmap, fns, repo_root)
+    if probe and before:
+        probe, before = _drop_contradictions(probe, before, card.text, repo_root)
     reproduced = bool(before and before.expectation_known and not before.all_expected_met)
     if probe:
         _emit(on_event, "probe", ("reproduced: " if reproduced else "not reproduced: ")
@@ -213,6 +254,13 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
 
     base_tests = related_tests(rmap, sorted({f.path for f in fns}))
     _ran, baseline_failed, _ = run_tests(repo_root, base_tests)
+    # Behaviour guard: the issue's calls + variants + calls from the repo's
+    # tests, run once on the original code; every candidate is checked for
+    # NEW crashes on inputs the original handled (and the same run later
+    # feeds the crux clustering).
+    guard_cases = _guard_cases(probe, rmap, fns)
+    guard = Probe(probe.setup if probe else "", guard_cases)
+    guard_before = run_probe(repo_root, guard) if guard_cases else None
 
     out = CruxOutcome(winner=None, best=None, candidates=[], locations=locations, probe=probe,
                       probe_before=before, probe_after=None, reproduced=reproduced,
@@ -221,6 +269,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     observed = describe(probe, before) if probe else "(no executable reproduction)"
     feedback: list[str] = []
     runs: dict[str, ProbeRun | None] = {}
+    guard_runs: dict[str, ProbeRun] = {}
     best_key = None
 
     for round_no in range(2):
@@ -240,7 +289,7 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
                 _emit(on_event, "candidate", f"{cand.id} invalid: {cand.error}", id=cand.id, status="invalid")
                 continue
             run, new_fail, tests = _evaluate(repo_root, cand, probe, reproduced, rmap, baseline_failed, base_tests,
-                                             before)
+                                             before, guard, guard_before, guard_runs)
             runs[cand.id] = run
             key = _score(cand, run, new_fail)
             if best_key is None or key > best_key:
@@ -256,6 +305,9 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
                 feedback.append(f"- {cand.id}: edit could not be applied ({cand.error}).")
             elif cand.status == "broke-tests":
                 feedback.append(f"- {cand.id} ({cand.hypothesis}) broke existing tests: {'; '.join(cand.notes)[:400]}")
+            elif cand.status == "new-crash":
+                feedback.append(f"- {cand.id} ({cand.hypothesis}) introduced crashes on inputs the original code "
+                                f"handled: {'; '.join(cand.notes)[:400]}. Keep existing behaviour working.")
             elif cand.status == "misses-issue":
                 unchanged = runs.get(cand.id) and before and runs[cand.id].fingerprint == before.fingerprint
                 if unchanged:
@@ -287,16 +339,11 @@ def run_crux(gateway, repo_root: Path, goal: str, *, budget=None, k: int = 2, ma
     alive = [c for c in alive if c.status == "alive"]
 
     # -- CRUX: where do the survivors actually disagree? --------------------
-    setup = probe.setup if probe else ""
-    base_cases = list(probe.cases) if probe else []
-    cases = base_cases + variant_cases(Probe(setup, base_cases)) + harvested_cases(rmap, {f.name for f in fns})
+    setup = guard.setup
+    cases = list(guard.cases)
     crux_probe = Probe(setup, [Case(c.expr, None, None, c.setup, c.origin) for c in cases])
-    _working(on_event, f"running {len(alive)} surviving fix(es) on {len(cases)} inputs…")
-    original_run = run_probe(repo_root, crux_probe) if cases else None
-    fps = {}
-    for cand in alive:
-        with applied(repo_root, cand):
-            fps[cand.id] = run_probe(repo_root, crux_probe).fingerprint if cases else ()
+    original_run = guard_before
+    fps = {c.id: (guard_runs[c.id].fingerprint if c.id in guard_runs else ()) for c in alive}
     clusters = cluster(fps)
     out.inputs_tried = len(cases)
 

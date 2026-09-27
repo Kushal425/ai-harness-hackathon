@@ -42,7 +42,7 @@ def _literal_variants(node: ast.AST) -> list[ast.AST]:
         elif isinstance(v, float):
             out += [ast.Constant(x) for x in dict.fromkeys([0.0, -v, v / 2]) if x != v]
         elif isinstance(v, str):
-            cands = ["", " ", v[:1], v + v, v.upper(), " " + v + " "]
+            cands = ["", " ", v[:1], v + v, v.upper(), v.lower(), v.swapcase(), " " + v + " "]
             out += [ast.Constant(x) for x in dict.fromkeys(cands) if x != v]
     elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
         out += [ast.Constant(0), ast.Constant(abs(node.operand.value))]

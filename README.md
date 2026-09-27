@@ -80,7 +80,7 @@ make eval               # eval harness (toy_repo + crux_demo fixtures) — see R
 make demo               # the Crux moment, offline, with the model's replies scripted
 ```
 
-**Model.** `config.yaml` ships the model Raven was tested against end to end (`openai/gpt-oss-20b` on Groq's OpenAI-compatible endpoint). If the organisers prescribe another model or endpoint, set `RAVEN_MODEL` / `RAVEN_BASE_URL` — no code changes. The key is only ever read from `AI_API_KEY`; a scored (non-interactive) run without it stops with an error instead of quietly using the offline fake model.
+**Model.** The evaluators provide only `AI_API_KEY` (a DeepSeek or Qwen key; the model names aren't announced). With `base_url: auto` / `model: auto` in `config.yaml`, Raven detects the provider that accepts the key — a free `GET /models` on each listed endpoint (DeepSeek, then Alibaba DashScope international and mainland) — and uses the first of that provider's preferred models the key can access, otherwise the best chat/coder model it lists (never vision, embedding, audio or reasoning-only models). The choice is printed at startup (`[raven] model: deepseek-chat via api.deepseek.com (auto-detected)`). To pin it, set `RAVEN_BASE_URL` + `RAVEN_MODEL`, or `RAVEN_PROVIDER=deepseek|qwen`, or edit `config.yaml`. Note: an ambiguous `sk-…` key is offered to DeepSeek before DashScope; keys with a provider-specific prefix (`sk-or-`, `gsk_`) only ever go to their own provider. The key is otherwise read only from `AI_API_KEY`, and a scored run without it stops with an error instead of quietly using the offline fake model.
 
 ## Supplying an issue
 

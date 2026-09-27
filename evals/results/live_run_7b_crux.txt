@@ -1,0 +1,12 @@
+slugify_repeated_separators    crux         hidden=fail  raven=unresolved  calls=21 tokens=42049 607.8s  partial: best candidate c1 kept (misses-issue); agent fallback: budget exhausted: time bud
+truncate_exceeds_width         crux         hidden=PASS  raven=unresolved  calls=28 tokens=56517 371.9s  partial: best candidate c1 kept (misses-issue); agent fallback: budget exhausted: max_iter
+clamp_upper_bound              crux         hidden=PASS  raven=RESOLVED  calls=6 tokens=3059 99.1s  reproduction fixed; no new test failures; 3 candidates, 3 survived, 1 behaviour cluster(s)
+roman_subtractive              crux         hidden=fail  raven=RESOLVED  <-- FALSE RESOLVED  calls=5 tokens=2886 107.3s  reproduction fixed; no new test failures; 3 candidates, 1 survived, 1 behaviour cluster(s)
+dedupe_order                   crux         hidden=PASS  raven=RESOLVED  calls=6 tokens=3240 114.7s  reproduction fixed; no new test failures; 3 candidates, 3 survived, 1 behaviour cluster(s)
+merge_touching_intervals       crux         hidden=PASS  raven=RESOLVED  calls=5 tokens=3079 108.2s  reproduction fixed; no new test failures; 3 candidates, 3 survived, 1 behaviour cluster(s)
+chunk_last_partial             crux         hidden=PASS  raven=unresolved  calls=30 tokens=73177 572.9s  partial: best candidate c1 kept (misses-issue); agent fallback: budget exhausted: max_iter
+parse_compound_duration        crux         hidden=fail  raven=unresolved  calls=25 tokens=40751 655.7s  budget exhausted: time budget exhausted (387s/354s)
+
+crux         hidden-pass 5/8  false-resolved 1  avg calls 15.8  avg tokens 28095  avg 330s
+
+details: /Users/sachinjaiswal/Desktop/ai-harness-hackathon/evals/results/live_qwen2.5-coder_7b.jsonl
