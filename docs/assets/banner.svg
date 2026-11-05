@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d0714" />
+      <stop offset="50%" stop-color="#150c24" />
+      <stop offset="100%" stop-color="#1e1033" />
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="50%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#e879f9" />
+    </linearGradient>
+    <linearGradient id="glow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e879f9" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#7c3aed" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="25" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="420" rx="16" fill="url(#bg-grad)" stroke="#6d28d9" stroke-width="1.5" stroke-opacity="0.5" />
+
+  <!-- Background Grid Glow -->
+  <circle cx="220" cy="210" r="160" fill="url(#glow-grad)" filter="url(#glow)" />
+  <circle cx="980" cy="210" r="200" fill="url(#glow-grad)" filter="url(#glow)" />
+
+  <!-- Subtle Grid Lines -->
+  <g stroke="#7c3aed" stroke-width="0.5" stroke-opacity="0.15">
+    <line x1="0" y1="70" x2="1200" y2="70" />
+    <line x1="0" y1="140" x2="1200" y2="140" />
+    <line x1="0" y1="210" x2="1200" y2="210" />
+    <line x1="0" y1="280" x2="1200" y2="280" />
+    <line x1="0" y1="350" x2="1200" y2="350" />
+    <line x1="200" y1="0" x2="200" y2="420" />
+    <line x1="400" y1="0" x2="400" y2="420" />
+    <line x1="600" y1="0" x2="600" y2="420" />
+    <line x1="800" y1="0" x2="800" y2="420" />
+    <line x1="1000" y1="0" x2="1000" y2="420" />
+  </g>
+
+  <!-- Top Badge -->
+  <g transform="translate(100, 52)">
+    <rect width="280" height="30" rx="15" fill="#1e1033" stroke="#a78bfa" stroke-width="1" stroke-opacity="0.6" />
+    <circle cx="16" cy="15" r="4" fill="#86efac" />
+    <text x="30" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#c4b5fd" letter-spacing="1.5">AUTONOMOUS CODING HARNESS</text>
+  </g>
+
+  <!-- Mascot Symbol (Stylized Raven Feather / Diamond Glyph) -->
+  <g transform="translate(100, 110)">
+    <polygon points="40,0 75,35 40,70 5,35" fill="none" stroke="url(#accent-grad)" stroke-width="3" />
+    <polygon points="40,12 63,35 40,58 17,35" fill="url(#accent-grad)" fill-opacity="0.2" />
+    <circle cx="40" cy="35" r="6" fill="#ffffff" />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="195" y="166" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="62" font-weight="800" fill="url(#accent-grad)" letter-spacing="4">RAVEN</text>
+
+  <!-- Tagline -->
+  <text x="100" y="230" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#f5f3ff" letter-spacing="0.2">
+    Proves code fixes with executed evidence — instead of guessing.
+  </text>
+
+  <!-- Supporting Subtitle -->
+  <text x="100" y="268" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15" fill="#a78bfa" opacity="0.9" letter-spacing="0.3">
+    Disagreement-driven patch selection • Behavioral clustering • Spectral fault localization • Zero hallucinated fixes
+  </text>
+
+  <!-- Feature Metric Pills -->
+  <g transform="translate(100, 316)">
+    <!-- Pill 1 -->
+    <rect x="0" y="0" width="210" height="52" rx="10" fill="#1e1033" stroke="#6d28d9" stroke-width="1" />
+    <text x="16" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="1">CRUX ENGINE</text>
+    <text x="16" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="500" fill="#e5e5e5">Disagreement Selection</text>
+
+    <!-- Pill 2 -->
+    <rect x="230" y="0" width="210" height="52" rx="10" fill="#1e1033" stroke="#6d28d9" stroke-width="1" />
+    <text x="246" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="1">TOKEN EFFICIENCY</text>
+    <text x="246" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="500" fill="#e5e5e5">~6 Calls vs 25+ Loop</text>
+
+    <!-- Pill 3 -->
+    <rect x="460" y="0" width="210" height="52" rx="10" fill="#1e1033" stroke="#6d28d9" stroke-width="1" />
+    <text x="476" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="1">PROOF OF FIX</text>
+    <text x="476" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="500" fill="#e5e5e5">Behavioral Certificates</text>
+
+    <!-- Pill 4 -->
+    <rect x="690" y="0" width="210" height="52" rx="10" fill="#1e1033" stroke="#6d28d9" stroke-width="1" />
+    <text x="706" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="1">TERMINAL UI</text>
+    <text x="706" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="500" fill="#e5e5e5">Rich Live Diff TUI</text>
+  </g>
+</svg>

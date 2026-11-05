@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pipe-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e0817" />
+      <stop offset="100%" stop-color="#180e2a" />
+    </linearGradient>
+    <linearGradient id="node-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2a1647" />
+      <stop offset="100%" stop-color="#1a0d30" />
+    </linearGradient>
+    <linearGradient id="highlight-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#4c1d95" />
+    </linearGradient>
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <rect width="1100" height="500" rx="14" fill="url(#pipe-bg)" stroke="#6d28d9" stroke-width="1.2" stroke-opacity="0.4" />
+
+  <!-- Section Title -->
+  <text x="50" y="45" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700" fill="#e879f9" letter-spacing="1.5">THE CRUX PIPELINE: DISAGREEMENT-DRIVEN PATCH SELECTION</text>
+  <text x="50" y="70" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" fill="#9ca3af">How Raven resolves bugs in ~6 targeted calls without blind trial-and-error</text>
+
+  <!-- Flow Arrows / Connectors -->
+  <g stroke="#7c3aed" stroke-width="2" stroke-dasharray="4,4" opacity="0.6">
+    <line x1="180" y1="160" x2="220" y2="160" />
+    <line x1="360" y1="160" x2="400" y2="160" />
+    <line x1="540" y1="160" x2="580" y2="160" />
+    <line x1="720" y1="160" x2="760" y2="160" />
+    <line x1="900" y1="160" x2="940" y2="160" />
+  </g>
+
+  <!-- Step 1: RepoMap & Localize -->
+  <g transform="translate(40, 100)" filter="url(#card-shadow)">
+    <rect width="140" height="120" rx="8" fill="url(#node-grad)" stroke="#6d28d9" stroke-width="1.5" />
+    <circle cx="24" cy="24" r="12" fill="#7c3aed" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#fff">1</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c4b5fd">Localize</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" fill="#e5e5e5">AST Indexing</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#9ca3af">PageRank import graph</text>
+    <text x="14" y="94" font-family="sans-serif" font-size="10" fill="#86efac">Cost: 1 call</text>
+  </g>
+
+  <!-- Step 2: Behavioral Probe -->
+  <g transform="translate(220, 100)" filter="url(#card-shadow)">
+    <rect width="140" height="120" rx="8" fill="url(#node-grad)" stroke="#6d28d9" stroke-width="1.5" />
+    <circle cx="24" cy="24" r="12" fill="#7c3aed" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#fff">2</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c4b5fd">Probe</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" fill="#e5e5e5">Exec Reproduction</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#9ca3af">Separate fact vs expectation</text>
+    <text x="14" y="94" font-family="sans-serif" font-size="10" fill="#86efac">Cost: 1 call</text>
+  </g>
+
+  <!-- Step 3: Candidate Patches -->
+  <g transform="translate(400, 100)" filter="url(#card-shadow)">
+    <rect width="140" height="120" rx="8" fill="url(#node-grad)" stroke="#6d28d9" stroke-width="1.5" />
+    <circle cx="24" cy="24" r="12" fill="#7c3aed" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#fff">3</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c4b5fd">Candidates</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" fill="#e5e5e5">k Parallel Fixes</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#9ca3af">Diverse framings &amp; temps</text>
+    <text x="14" y="94" font-family="sans-serif" font-size="10" fill="#86efac">Cost: 3 parallel</text>
+  </g>
+
+  <!-- Step 4: Disagreement & Crux (Featured Highlight) -->
+  <g transform="translate(580, 95)" filter="url(#card-shadow)">
+    <rect width="140" height="130" rx="8" fill="url(#highlight-grad)" stroke="#e879f9" stroke-width="2" />
+    <circle cx="24" cy="24" r="12" fill="#e879f9" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#1e1033">4</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#ffffff">The Crux</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" font-weight="bold" fill="#ffffff">Disagreement Search</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#f5f3ff">Mutant variant inputs</text>
+    <text x="14" y="92" font-family="sans-serif" font-size="10" fill="#f5f3ff">Partition entropy max</text>
+    <text x="14" y="108" font-family="sans-serif" font-size="10" font-weight="bold" fill="#86efac">Deterministic execution</text>
+  </g>
+
+  <!-- Step 5: Adjudicate -->
+  <g transform="translate(760, 100)" filter="url(#card-shadow)">
+    <rect width="140" height="120" rx="8" fill="url(#node-grad)" stroke="#6d28d9" stroke-width="1.5" />
+    <circle cx="24" cy="24" r="12" fill="#7c3aed" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#fff">5</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c4b5fd">Adjudicate</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" fill="#e5e5e5">Repo Evidence</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#9ca3af">Docstrings, tests, git</text>
+    <text x="14" y="94" font-family="sans-serif" font-size="10" fill="#86efac">Cost: 0-1 calls</text>
+  </g>
+
+  <!-- Step 6: Certificate -->
+  <g transform="translate(940, 100)" filter="url(#card-shadow)">
+    <rect width="120" height="120" rx="8" fill="url(#node-grad)" stroke="#6d28d9" stroke-width="1.5" />
+    <circle cx="24" cy="24" r="12" fill="#86efac" />
+    <text x="20" y="28" font-family="sans-serif" font-size="11" font-weight="bold" fill="#1e1033">✓</text>
+    <text x="44" y="27" font-family="sans-serif" font-size="11" font-weight="bold" fill="#86efac">Verify</text>
+    <text x="14" y="58" font-family="sans-serif" font-size="11" fill="#e5e5e5">Certificate</text>
+    <text x="14" y="76" font-family="sans-serif" font-size="10" fill="#9ca3af">Repro + Regressions</text>
+    <text x="14" y="94" font-family="sans-serif" font-size="10" fill="#86efac">Evidence Score</text>
+  </g>
+
+  <!-- Bottom Comparison Card -->
+  <g transform="translate(40, 260)">
+    <rect width="1020" height="200" rx="10" fill="#130a21" stroke="#4c1d95" stroke-width="1" />
+    <text x="30" y="35" font-family="sans-serif" font-size="13" font-weight="700" fill="#c4b5fd">PARADIGM SHIFT: WHY RAVEN OUTPERFORMS THE MONOLITHIC AGENT LOOP</text>
+
+    <!-- Standard Agent Loop -->
+    <rect x="30" y="55" width="465" height="120" rx="6" fill="#1c102e" stroke="#f87171" stroke-width="1" stroke-opacity="0.4" />
+    <text x="45" y="80" font-family="sans-serif" font-size="12" font-weight="bold" fill="#f87171">Standard Coding Agent Loop (20–30 LLM calls)</text>
+    <text x="45" y="102" font-family="monospace" font-size="11" fill="#9ca3af">prompt → edit → test fails → prompt → edit → test fails → ...</text>
+    <text x="45" y="125" font-family="sans-serif" font-size="11" fill="#e5e5e5">• Suffers from Coherence Collapse (overwrites valid patches)</text>
+    <text x="45" y="143" font-family="sans-serif" font-size="11" fill="#e5e5e5">• 77% of benchmarks admit wrong patches that pass visible tests</text>
+    <text x="45" y="161" font-family="sans-serif" font-size="11" fill="#e5e5e5">• Unbounded token consumption and state hallucination</text>
+
+    <!-- Raven Crux -->
+    <rect x="525" y="55" width="465" height="120" rx="6" fill="#1c102e" stroke="#86efac" stroke-width="1" stroke-opacity="0.6" />
+    <text x="540" y="80" font-family="sans-serif" font-size="12" font-weight="bold" fill="#86efac">Raven Crux Engine (~6 targeted calls)</text>
+    <text x="540" y="102" font-family="monospace" font-size="11" fill="#c4b5fd">candidates act as mutual mutants → find disagreement input</text>
+    <text x="540" y="125" font-family="sans-serif" font-size="11" fill="#e5e5e5">• Immutable candidate snapshots (never overwrite good code)</text>
+    <text x="540" y="143" font-family="sans-serif" font-size="11" fill="#e5e5e5">• LLM judgment queried ONLY on single disagreement edge</text>
+    <text x="540" y="161" font-family="sans-serif" font-size="11" fill="#e5e5e5">• Backed by repository proof &amp; executed evidence certificate</text>
+  </g>
+</svg>
